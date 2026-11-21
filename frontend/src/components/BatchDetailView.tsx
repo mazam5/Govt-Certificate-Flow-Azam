@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import type { Batch, Persona } from '../types';
 import { api } from '../services/api';
 import { AuditTimeline } from './AuditTimeline';
@@ -17,7 +17,6 @@ import {
   Smartphone,
   ExternalLink,
   ChevronLeft,
-  Sparkles,
 } from 'lucide-react';
 
 interface Props {
@@ -38,7 +37,6 @@ export const BatchDetailView: React.FC<Props> = ({
   const [activeTab, setActiveTab] = useState<'candidates' | 'audit'>('candidates');
   const [isChangesModalOpen, setIsChangesModalOpen] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
 
   // Approvals breakdown
   const districtApprovals = (batch.approvals || []).filter(
@@ -49,15 +47,6 @@ export const BatchDetailView: React.FC<Props> = ({
   );
 
   const hasCurrentOfficerApproved = districtApprovals.some((a) => a.officerId === activePersona.id);
-
-  // Fetch AI Escalation Summary if escalated or requested
-  useEffect(() => {
-    if (batch.status === 'ESCALATED') {
-      api.getEscalationSummary(batch.id, activePersona).then((summary) => {
-        if (summary) setAiSummary(summary);
-      }).catch(() => {});
-    }
-  }, [batch.id, batch.status]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -166,9 +155,9 @@ export const BatchDetailView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* SLA Escalation Banner with AI Anomaly Summary */}
+      {/* SLA Escalation Banner */}
       {batch.status === 'ESCALATED' && (
-        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-5 text-xs text-amber-900 space-y-3 shadow-xs">
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-5 text-xs text-amber-900 shadow-xs">
           <div className="flex items-start space-x-3">
             <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
             <div>
@@ -178,19 +167,6 @@ export const BatchDetailView: React.FC<Props> = ({
               </p>
             </div>
           </div>
-
-          {/* AI Executive Summary Block */}
-          {aiSummary && (
-            <div className="bg-white/80 backdrop-blur-xs p-3.5 rounded-xl border border-amber-200 text-slate-800">
-              <div className="flex items-center text-indigo-700 font-bold mb-1.5 space-x-1.5">
-                <Sparkles className="w-4 h-4 text-indigo-600" />
-                <span className="uppercase tracking-wider text-[11px]">AI Smart Audit & Bottleneck Analysis:</span>
-              </div>
-              <pre className="whitespace-pre-wrap font-sans text-xs text-slate-700 leading-relaxed">
-                {aiSummary}
-              </pre>
-            </div>
-          )}
         </div>
       )}
 

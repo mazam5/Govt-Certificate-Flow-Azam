@@ -93,8 +93,22 @@ The UI features a persistent top-bar **Demo Persona Switcher** issuing signed **
   - **Automated Migration Engine:** Prisma's battle-tested migration engine ensures zero drift across containerized environments and CI/CD pipelines.
   - *Trade-off analysis:* While Drizzle offers lightweight SQL-like syntax and smaller bundle footprints without an engine binary, Prisma provides superior schema drift prevention, automated foreign-key validation, and multi-model relation nesting mandatory for legal compliance audit logs.
 - **Redis & BullMQ:** Distributed in-memory caching for sub-millisecond public certificate checks (`cert:public:${certNumber}`), distributed idempotency locks (`cert:issued:${batchId}:${candidateId}`), delayed BullMQ SLA monitors, and exponential backoff WhatsApp delivery retries.
-- **Pluggable EventBus (Kafka + Redis):** Clean `IEventBus` interface allowing seamless swapping between the local Redis/BullMQ event bus and an enterprise Apache Kafka / AWS MSK cluster for high-volume audit streaming.
-- **LLM API Assistant:** Optional AI assistant (with deterministic fallback) for intelligent CSV column header auto-mapping and plain-English executive bottleneck summaries for State Office escalations.
+- **Pluggable EventBus:** Clean `IEventBus` interface allowing seamless swapping between the local Redis/BullMQ event bus and enterprise event brokers for high-volume audit streaming.
+- **100% Deterministic Zod Ingestion:** Zero external AI dependencies or brittle runtime abstractions. Spreadsheet ingestion relies exclusively on strict Zod schema validation (`CandidateRowSchema`), guaranteeing that malformed CSV/XLSX rows are rejected atomically with pinpoint row and column error reporting.
+- **Local Volume Storage with Cloud Roadmap:** Certificate PDFs are rendered via vector PDFKit and saved directly to a containerized volume mount (`./storage/certificates`), keeping runtime code self-contained and zero-cost locally. The full enterprise AWS cloud production architecture (ECS/EC2, S3 KMS, Aurora RDS, ElastiCache, MSK) is specified exclusively in `DEPLOYMENT.md`.
+
+### Dependency Rationale (Strict Justification)
+Every dependency in `package.json` has a clear, production-justified role:
+- `@prisma/client` & `prisma`: Type-safe relational data modeling, migrations, and pessimistic concurrency row locks (`SELECT FOR UPDATE`).
+- `bullmq` & `ioredis`: Redis-backed queues for asynchronous PDF generation, resilient exponential-backoff WhatsApp retries, and delayed SLA escalation timers.
+- `express`, `cors`, `helmet`: Industry-standard REST routing and HTTP security headers.
+- `jsonwebtoken`: Signed Bearer JWT authentication tokens for RBAC enforcement across personas.
+- `pdfkit` & `qrcode`: Vector PDF certificate generation with embedded cryptographic verification QR codes.
+- `xlsx`: Fast spreadsheet ingestion supporting both `.csv` and `.xlsx` candidate rosters.
+- `zod`: Strict runtime schema validation across batch rows, API payloads, and environment variables.
+- `pino`: Ultra-fast structured JSON logging with correlation IDs (`X-Correlation-Id`).
+- `multer`: Controlled in-memory streaming for file uploads up to 10MB.
+- `uuid`: Collision-free distributed correlation IDs and idempotency keys.
 
 ---
 

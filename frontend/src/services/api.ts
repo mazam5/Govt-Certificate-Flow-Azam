@@ -179,15 +179,6 @@ export const api = {
     return json.data;
   },
 
-  async getEscalationSummary(batchId: string, activePersona: Persona) {
-    const res = await fetch(`${API_BASE}/batches/${batchId}/escalation-summary`, {
-      headers: getHeaders(activePersona),
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error || 'Failed to fetch summary');
-    return json.data?.summary;
-  },
-
   async verifyCertificate(certNumber: string) {
     const res = await fetch(`${API_BASE}/verify/${certNumber.trim().toUpperCase()}`);
     const json = await res.json();

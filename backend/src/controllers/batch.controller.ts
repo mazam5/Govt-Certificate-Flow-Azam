@@ -3,7 +3,6 @@ import multer from 'multer';
 import { BatchService } from '../services/batch.service.js';
 import { SpreadsheetService } from '../services/spreadsheet.service.js';
 import { AuditService } from '../services/audit.service.js';
-import { LlmService } from '../services/llm.service.js';
 import { prisma } from '../config/prisma.js';
 import { Role } from '@prisma/client';
 import { AppError } from '../middleware/errorHandler.js';
@@ -210,40 +209,6 @@ export class BatchController {
         success: true,
         message: `Batch ${result.batchNumber} resubmitted (version ${result.version}). Prior approvals invalidated.`,
         data: result,
-      });
-    } catch (err) {
-      next(err);
-    }
-  }
-
-  public static async getEscalationSummary(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const id = getSingleParam(req.params.id);
-      const batch = await prisma.batch.findUnique({
-        where: { id },
-      });
-
-      if (!batch) {
-        throw new AppError('Batch not found', 404);
-      }
-
-      const auditLogs = await AuditService.getLogsForTarget(batch.id);
-
-      const summary = await LlmService.generateEscalationSummary({
-        batchNumber: batch.batchNumber,
-        courseName: batch.courseName,
-        totalCandidates: batch.totalCandidates,
-        breachedState: batch.status,
-        auditLogs,
-      });
-
-      res.json({
-        success: true,
-        data: {
-          batchId: batch.id,
-          batchNumber: batch.batchNumber,
-          summary,
-        },
       });
     } catch (err) {
       next(err);

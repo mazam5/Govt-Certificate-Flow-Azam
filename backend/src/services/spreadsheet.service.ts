@@ -1,6 +1,6 @@
+import { z } from 'zod';
 import xlsx from 'xlsx';
 import { AppError } from '../middleware/errorHandler.js';
-import { LlmService } from './llm.service.js';
 
 export interface RawCandidateRow {
   name?: string;
@@ -34,9 +34,78 @@ export interface ValidatedCandidate {
   completionDate: string;
 }
 
+const validGenders = ['male', 'female', 'other', 'm', 'f', 'o'];
+
+/**
+ * Strict Zod schema for runtime candidate row validation
+ */
+export const CandidateRowSchema = z.object({
+  name: z
+    .string({ required_error: 'Candidate name is mandatory.' })
+    .trim()
+    .min(2, 'Name must be at least 2 characters long.'),
+  fatherName: z
+    .string({ required_error: "Father's name is mandatory." })
+    .trim()
+    .min(2, "Father's name is mandatory (min 2 characters)."),
+  dateOfBirth: z
+    .string({ required_error: 'Date of birth is mandatory.' })
+    .trim()
+    .refine((val) => !isNaN(Date.parse(val)), {
+      message: 'Valid date of birth required (e.g. YYYY-MM-DD or DD/MM/YYYY).',
+    }),
+  gender: z
+    .string({ required_error: 'Gender is mandatory.' })
+    .trim()
+    .refine((val) => validGenders.includes(val.toLowerCase()), {
+      message: "Gender must be 'Male', 'Female', or 'Other'.",
+    }),
+  aadharLast4: z
+    .string({ required_error: 'Aadhar last 4 digits are mandatory.' })
+    .trim()
+    .transform((val) => val.replace(/[^0-9]/g, ''))
+    .refine((val) => /^\d{4}$/.test(val), {
+      message: 'Aadhar must contain exactly 4 numeric digits.',
+    }),
+  phone: z
+    .string({ required_error: 'Phone number is mandatory.' })
+    .trim()
+    .transform((val) => val.replace(/[^0-9]/g, ''))
+    .refine((val) => /^[6-9]\d{9}$/.test(val), {
+      message: 'Phone must be a valid 10-digit mobile number starting with 6, 7, 8, or 9.',
+    }),
+  course: z
+    .string({ required_error: 'Course name is mandatory.' })
+    .trim()
+    .min(2, 'Course name is mandatory.'),
+  grade: z
+    .string({ required_error: 'Grade is mandatory.' })
+    .trim()
+    .min(1, 'Grade is required (e.g., A+, A, B, C, Distinction).')
+    .transform((val) => val.toUpperCase()),
+  completionDate: z
+    .string({ required_error: 'Completion date is mandatory.' })
+    .trim()
+    .refine((val) => !isNaN(Date.parse(val)), {
+      message: 'Valid completion date is required.',
+    }),
+});
+
+const FIELD_TO_COLUMN_LABEL: Record<string, string> = {
+  name: 'Name',
+  fatherName: 'Father Name',
+  dateOfBirth: 'Date of Birth',
+  gender: 'Gender',
+  aadharLast4: 'Aadhar Last 4',
+  phone: 'Phone',
+  course: 'Course',
+  grade: 'Grade',
+  completionDate: 'Completion Date',
+};
+
 export class SpreadsheetService {
   /**
-   * Parse CSV or XLSX buffer with LLM-assisted / fuzzy header normalization
+   * Deterministic CSV/XLSX parsing with canonical header normalization
    */
   public static parseFile(buffer: Buffer): RawCandidateRow[] {
     const workbook = xlsx.read(buffer, { type: 'buffer', cellDates: true });
@@ -54,8 +123,8 @@ export class SpreadsheetService {
 
     // Extract headers from first row
     const rawHeaders = Object.keys(rawData[0] || {});
-    // Generate header mappings (AI-assisted or deterministic)
     const headerMappings: Record<string, string> = {};
+
     for (const header of rawHeaders) {
       const clean = header.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
       if (/^(name|candidatename|studentname|traineename|fullname)$/.test(clean)) headerMappings[header] = 'name';
@@ -92,7 +161,7 @@ export class SpreadsheetService {
   }
 
   /**
-   * Strictly validate all rows upfront. Zero partial writes if ANY row fails.
+   * Strictly validate all rows upfront using Zod. Zero partial writes if ANY row fails.
    */
   public static validateRows(rows: RawCandidateRow[]): {
     isValid: boolean;
@@ -102,120 +171,23 @@ export class SpreadsheetService {
     const errors: ValidationErrorItem[] = [];
     const candidates: ValidatedCandidate[] = [];
 
-    const phoneRegex = /^[6-9]\d{9}$/;
-    const aadharRegex = /^\d{4}$/;
-    const validGenders = ['male', 'female', 'other', 'm', 'f', 'o'];
-
     rows.forEach((row, index) => {
       const rowNum = index + 2;
-      const rowErrors: ValidationErrorItem[] = [];
+      const parseResult = CandidateRowSchema.safeParse(row);
 
-      // 1. Candidate Name
-      if (!row.name || row.name.trim().length < 2) {
-        rowErrors.push({
-          row: rowNum,
-          column: 'Name',
-          value: row.name || '',
-          reason: 'Name must be at least 2 characters long.',
-        });
-      }
-
-      // 2. Father's Name
-      if (!row.fatherName || row.fatherName.trim().length < 2) {
-        rowErrors.push({
-          row: rowNum,
-          column: 'Father Name',
-          value: row.fatherName || '',
-          reason: "Father's name is mandatory (min 2 characters).",
-        });
-      }
-
-      // 3. Date of Birth
-      if (!row.dateOfBirth || isNaN(Date.parse(row.dateOfBirth))) {
-        rowErrors.push({
-          row: rowNum,
-          column: 'Date of Birth',
-          value: row.dateOfBirth || '',
-          reason: 'Valid date of birth required (e.g. YYYY-MM-DD or DD/MM/YYYY).',
-        });
-      }
-
-      // 4. Gender
-      if (!row.gender || !validGenders.includes(row.gender.toLowerCase())) {
-        rowErrors.push({
-          row: rowNum,
-          column: 'Gender',
-          value: row.gender || '',
-          reason: "Gender must be 'Male', 'Female', or 'Other'.",
-        });
-      }
-
-      // 5. Aadhar Last 4
-      const cleanAadhar = (row.aadharLast4 || '').replace(/[^0-9]/g, '');
-      if (!cleanAadhar || !aadharRegex.test(cleanAadhar)) {
-        rowErrors.push({
-          row: rowNum,
-          column: 'Aadhar Last 4',
-          value: row.aadharLast4 || '',
-          reason: 'Aadhar must contain exactly 4 numeric digits.',
-        });
-      }
-
-      // 6. Phone Number
-      const cleanPhone = (row.phone || '').replace(/[^0-9]/g, '');
-      if (!cleanPhone || !phoneRegex.test(cleanPhone)) {
-        rowErrors.push({
-          row: rowNum,
-          column: 'Phone',
-          value: row.phone || '',
-          reason: 'Phone must be a valid 10-digit mobile number starting with 6, 7, 8, or 9.',
-        });
-      }
-
-      // 7. Course
-      if (!row.course || row.course.trim().length < 2) {
-        rowErrors.push({
-          row: rowNum,
-          column: 'Course',
-          value: row.course || '',
-          reason: 'Course name is mandatory.',
-        });
-      }
-
-      // 8. Grade
-      if (!row.grade || row.grade.trim().length === 0) {
-        rowErrors.push({
-          row: rowNum,
-          column: 'Grade',
-          value: row.grade || '',
-          reason: 'Grade is required (e.g., A+, A, B, C, Distinction).',
-        });
-      }
-
-      // 9. Completion Date
-      if (!row.completionDate || isNaN(Date.parse(row.completionDate))) {
-        rowErrors.push({
-          row: rowNum,
-          column: 'Completion Date',
-          value: row.completionDate || '',
-          reason: 'Valid completion date is required.',
-        });
-      }
-
-      if (rowErrors.length > 0) {
-        errors.push(...rowErrors);
+      if (!parseResult.success) {
+        for (const issue of parseResult.error.issues) {
+          const field = (issue.path[0] as string) || '';
+          const columnLabel = FIELD_TO_COLUMN_LABEL[field] || field;
+          errors.push({
+            row: rowNum,
+            column: columnLabel,
+            value: row[field] ?? '',
+            reason: issue.message,
+          });
+        }
       } else {
-        candidates.push({
-          name: row.name!.trim(),
-          fatherName: row.fatherName!.trim(),
-          dateOfBirth: row.dateOfBirth!.trim(),
-          gender: row.gender!.trim(),
-          aadharLast4: cleanAadhar,
-          phone: cleanPhone,
-          course: row.course!.trim(),
-          grade: row.grade!.trim().toUpperCase(),
-          completionDate: row.completionDate!.trim(),
-        });
+        candidates.push(parseResult.data as ValidatedCandidate);
       }
     });
 
