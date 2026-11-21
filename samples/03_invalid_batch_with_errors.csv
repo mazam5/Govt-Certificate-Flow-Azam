@@ -1,0 +1,7 @@
+Name,Father Name,Date of Birth,Gender,Aadhar Last 4,Phone,Course,Grade,Completion Date
+Rohan Rao,Prakash Rao,2001-05-14,Male,4821,98765,Electric Vehicle Service Specialist,A,2026-02-15
+Priya Sen,Bimal Sen,2002-08-22,Female,91234,9812345678,Electric Vehicle Service Specialist,A,2026-02-15
+Kunal Das,Amit Das,invalid-date,Male,3412,9723456789,Electric Vehicle Service Specialist,B,2026-02-15
+Ananya Joshi,,2003-01-30,Female,6547,9634567890,Electric Vehicle Service Specialist,A+,2026-02-15
+Vikas Mishra,Ramesh Mishra,2001-09-17,Male,7890,1234567890,Electric Vehicle Service Specialist,A,2026-02-15
+Valid Trainee,Valid Guardian,2000-06-15,Male,1234,9876543210,Electric Vehicle Service Specialist,A,2026-02-15
