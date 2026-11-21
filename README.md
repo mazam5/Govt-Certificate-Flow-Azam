@@ -1,7 +1,7 @@
 # CertiFlow — Pragati Skills Mission Certificate Platform
 
 > **Production-grade, event-driven skilling certificate issuance and governance platform built for the Pragati Skills Mission.**  
-> Ensures atomic batch validations, zero partial writes, multi-officer consensus locking, asynchronous BullMQ PDF generation, resilient WhatsApp delivery with exponential retries, SLA escalation alarms, and zero-PII public verification.
+> Features atomic data ingestion with zero partial writes, multi-officer consensus locking, asynchronous BullMQ workers for vector PDF generation with verification QR codes, resilient mock WhatsApp delivery with exponential retries, automatic SLA escalation monitors, signed JWT authentication, structured Pino logging, and zero-PII public verification.
 
 ---
 
@@ -58,7 +58,7 @@ CertiFlow follows **Domain-Driven Design (DDD)** and an **Event-Driven Architect
 
 ## 👥 2. Demo Personas & RBAC
 
-The UI features a persistent top-bar **Demo Persona Switcher**:
+The UI features a persistent top-bar **Demo Persona Switcher** issuing signed **JWT tokens** verified via backend RBAC middleware:
 
 | Persona | Role | Jurisdiction | Key Responsibilities |
 |---|---|---|---|
@@ -72,13 +72,29 @@ The UI features a persistent top-bar **Demo Persona Switcher**:
 
 ---
 
-## 🛠️ 3. Tech Stack & Rationale
+## 🛠️ 3. Upgraded Production Tech Stack & Architecture Rationale
 
-- **Backend:** Node.js, Express, TypeScript. Modular domain structure (`controllers`, `services`, `workers`, `events`, `middleware`, `queues`).
-- **Database:** PostgreSQL with Prisma ORM. Strict ACID transactions, PostgreSQL pessimistic locking (`SELECT FOR UPDATE`), unique constraints on `(batchId, candidateId)` and `certNumber`.
-- **Queues & Caching:** Redis 7 + BullMQ 5. Asynchronous worker execution for PDF compilation, exponential backoff retries, SLA delayed timers, and Redis caching for sub-millisecond public verification.
-- **Frontend:** React 19, Vite, Tailwind CSS v4, Lucide React icons, Server-Sent Events (SSE) live updates for real-time progress and alerts.
-- **Containerization:** Multi-service `docker-compose.yml` (Postgres, Redis, Backend, Worker, Frontend).
+### Frontend Stack (React + Vite + TypeScript)
+- **React Router v6+:** Client-side role-protected routing (`/centre`, `/district`, `/quality`, `/state`, `/verify/:certNumber`, `/verify`).
+- **Zustand:** Lightweight, zero-boilerplate client session store (`useAuthStore`) managing active persona identity and signed JWT tokens with localStorage synchronization.
+- **TanStack Query (`v5`):** Declarative server state management, caching, background refetching, and instant cache invalidation wired to the Server-Sent Events (SSE) stream.
+- **Radix UI & Tailwind CSS:** Fully accessible, keyboard-navigable UI primitives (Dialog, Tabs, Alert Dialog) styled with Tailwind CSS.
+- **React Hook Form + Zod:** Strictly typed form state validation for batch upload forms and change-request modals.
+
+### Backend, Security & Observability (Node.js + Express + TypeScript)
+- **Signed JWT Authentication:** Cryptographically signed tokens (`HS256`) issued when switching personas or logging in, carrying identity and role claims verified via RBAC middleware.
+- **Structured Pino Logging:** Replaced raw `console.log` with high-performance structured JSON logging (`pino`), automatically injecting distributed correlation/trace IDs (`X-Correlation-Id`, `batchId`, `actorId`, `role`) across HTTP requests and background workers.
+- **Strict Zod Runtime Validation:** Guarantees zero invalid data touches database or service handlers.
+
+### Data Layer, Caching & Event Streaming
+- **Prisma ORM Strategy (Why Prisma over Drizzle):**
+  - **Single Source of Truth:** Declarative `schema.prisma` acts as the canonical data model for relational integrity, cascades, and enum definitions.
+  - **Pessimistic Concurrency Safety:** Seamless raw SQL transaction extensions (`$queryRaw` with `SELECT ... FOR UPDATE`) enable PostgreSQL row-level locks essential for multi-officer consensus approval workflows.
+  - **Automated Migration Engine:** Prisma's battle-tested migration engine ensures zero drift across containerized environments and CI/CD pipelines.
+  - *Trade-off analysis:* While Drizzle offers lightweight SQL-like syntax and smaller bundle footprints without an engine binary, Prisma provides superior schema drift prevention, automated foreign-key validation, and multi-model relation nesting mandatory for legal compliance audit logs.
+- **Redis & BullMQ:** Distributed in-memory caching for sub-millisecond public certificate checks (`cert:public:${certNumber}`), distributed idempotency locks (`cert:issued:${batchId}:${candidateId}`), delayed BullMQ SLA monitors, and exponential backoff WhatsApp delivery retries.
+- **Pluggable EventBus (Kafka + Redis):** Clean `IEventBus` interface allowing seamless swapping between the local Redis/BullMQ event bus and an enterprise Apache Kafka / AWS MSK cluster for high-volume audit streaming.
+- **LLM API Assistant:** Optional AI assistant (with deterministic fallback) for intelligent CSV column header auto-mapping and plain-English executive bottleneck summaries for State Office escalations.
 
 ---
 
@@ -86,7 +102,7 @@ The UI features a persistent top-bar **Demo Persona Switcher**:
 
 ### Option A: Complete Docker Compose Run (Recommended)
 
-Run all 5 services with a single command:
+Run all 5 containerized services with a single command:
 
 ```bash
 docker compose up --build
@@ -97,28 +113,13 @@ docker compose up --build
 - **Real-Time SSE Stream:** [http://localhost:5000/api/events/stream](http://localhost:5000/api/events/stream)
 - **Public Verification Endpoint:** [http://localhost:5173/verify/:certNumber](http://localhost:5173/verify/:certNumber)
 
-### Option B: Local Development Run
+### Option B: Local Linux / Make Automation
 
-1. **Start Postgres and Redis:**
-   ```bash
-   docker compose up -d postgres redis
-   ```
-
-2. **Setup Backend:**
-   ```bash
-   cd backend
-   npm install
-   npx prisma db push
-   npx tsx prisma/seed.ts
-   npm run dev
-   ```
-
-3. **Setup Frontend:**
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
+```bash
+make setup      # Installs dependencies, starts containers, syncs schema, seeds personas
+make test       # Executes all 6 critical moments integration tests
+make dev        # Starts backend and frontend development servers
+```
 
 ---
 
@@ -141,9 +142,11 @@ npm run test
 
 ---
 
-## 🤖 6. AI Usage, Design Choices & Trade-offs
+## 📦 6. Postman API Collection & CI/CD
 
-- **Strict Pessimistic Locking over Optimistic Retries for Approvals:** In high-concurrency government workflows where multiple district officers review batches simultaneously, PostgreSQL `SELECT FOR UPDATE` prevents write-skew and race conditions at the database level.
-- **Server-Sent Events (SSE) over WebSockets:** SSE was chosen for one-way server-to-client notifications (state updates, WhatsApp delivery ticks, SLA alarms) due to native browser reconnection handling, simpler HTTP/2 multiplexing, and lower server overhead compared to bidirectional WebSockets.
-- **Standalone Queue Workers:** Background job processing is decoupled into dedicated worker instances (`issuanceWorker`, `whatsappWorker`, `slaWorker`), ensuring heavy PDF rasterization and network retries never block HTTP request threads.
-- **Non-PII Public Verification:** To comply with Indian data protection standards (DPDP Act), the public verification endpoint strictly sanitizes outputs, exposing only Candidate Name, Course, Training Centre, Issue Date, and Authenticity Status.
+- **Postman Collection:** A ready-to-import collection is available at `postman/CertiFlow.postman_collection.json`, covering Persona Auth, Signed JWT verification, Batch Upload, Approvals, Rejections, Public Verification, and Revocation.
+- **GitHub Actions Workflow:** `.github/workflows/ci.yml` is configured to run on every push and pull request to `main`, validating:
+  - TypeScript compilation across backend and frontend
+  - Prisma schema synchronization
+  - Complete Vitest integration test suite (6 critical moments)
+  - Docker Compose multi-service image build validation

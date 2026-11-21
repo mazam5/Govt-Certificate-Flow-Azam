@@ -1,0 +1,193 @@
+{
+  "info": {
+    "name": "CertiFlow - Pragati Skills Mission API",
+    "_postman_id": "c1f80e31-9ac4-48df-834e-782926b80cd4",
+    "description": "Enterprise end-to-end API test collection covering Persona Auth, Batch Lifecycle, State Machine, Public Verification, and Revocation.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000", "type": "string" },
+    { "key": "jwtToken", "value": "", "type": "string" },
+    { "key": "batchId", "value": "", "type": "string" },
+    { "key": "certNumber", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication & Personas",
+      "item": [
+        {
+          "name": "List Available Personas",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/auth/personas"
+          }
+        },
+        {
+          "name": "Switch Persona & Get Signed JWT (Anika)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.token) {",
+                  "    pm.collectionVariables.set('jwtToken', json.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/switch",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"persona\": \"anika\"\n}" }
+          }
+        },
+        {
+          "name": "Get Current User Profile (JWT Authenticated)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/auth/me",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Batch Management & Workflow",
+      "item": [
+        {
+          "name": "Download Sample CSV",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/batches/sample-csv?count=5"
+          }
+        },
+        {
+          "name": "List Batches",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/batches",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }]
+          }
+        },
+        {
+          "name": "Get Batch Details & Audit Trail",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/batches/{{batchId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }]
+          }
+        },
+        {
+          "name": "Submit Batch for District Approval (Anika)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/batches/{{batchId}}/submit",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }]
+          }
+        },
+        {
+          "name": "District Approval 1 (Dev)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/batches/{{batchId}}/approve",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-persona", "value": "dev" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"comments\": \"District verification approved by Dev\"\n}" }
+          }
+        },
+        {
+          "name": "District Approval 2 (Meera - Advances Batch)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/batches/{{batchId}}/approve",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-persona", "value": "meera" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"comments\": \"District verification approved by Meera\"\n}" }
+          }
+        },
+        {
+          "name": "Quality Audit Approval (Neha - for batches >= 50)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/batches/{{batchId}}/approve",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-persona", "value": "neha" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"comments\": \"Quality verification audit passed\"\n}" }
+          }
+        },
+        {
+          "name": "State Final Sanction & Issuance (Farah)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/batches/{{batchId}}/approve",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-persona", "value": "farah" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"comments\": \"Final sanction granted for issuance\"\n}" }
+          }
+        },
+        {
+          "name": "Request Changes / Send Back",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/batches/{{batchId}}/request-changes",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-persona", "value": "dev" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Attendance biometric discrepancy observed\"\n}" }
+          }
+        },
+        {
+          "name": "Get AI Escalation Anomaly Summary",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/batches/{{batchId}}/escalation-summary",
+            "header": [{ "key": "Authorization", "value": "Bearer {{jwtToken}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Public Verification & Revocation",
+      "item": [
+        {
+          "name": "Public Credential Check (Zero PII - Unauthenticated)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/verify/{{certNumber}}"
+          }
+        },
+        {
+          "name": "Revoke Certificate (Farah - State Office)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/certificates/{{certNumber}}/revoke",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-persona", "value": "farah" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Post-issuance audit failed practical assessment checks\"\n}" }
+          }
+        },
+        {
+          "name": "Download Certificate PDF",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/certificates/{{certNumber}}/pdf"
+          }
+        }
+      ]
+    }
+  ]
+}

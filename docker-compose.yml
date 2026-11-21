@@ -1,0 +1,96 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: certiflow-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: certiflow
+      POSTGRES_PASSWORD: certiflow_secret
+      POSTGRES_DB: certiflow
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U certiflow -d certiflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: certiflow-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: certiflow-backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://certiflow:certiflow_secret@postgres:5432/certiflow?schema=public
+      REDIS_URL: redis://redis:6379
+      SLA_TIMEOUT_MS: 15000
+      FRONTEND_URL: http://localhost:5173
+      CERTIFICATE_STORAGE_PATH: /app/storage/certificates
+      START_WORKERS: "true"
+    ports:
+      - "5000:5000"
+    volumes:
+      - certificate_storage:/app/storage/certificates
+    command: >
+      sh -c "npx prisma db push && node dist/index.js"
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: certiflow-worker
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://certiflow:certiflow_secret@postgres:5432/certiflow?schema=public
+      REDIS_URL: redis://redis:6379
+      CERTIFICATE_STORAGE_PATH: /app/storage/certificates
+    volumes:
+      - certificate_storage:/app/storage/certificates
+    command: >
+      sh -c "node dist/workers/index.js"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: certiflow-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  postgres_data:
+  redis_data:
+  certificate_storage:

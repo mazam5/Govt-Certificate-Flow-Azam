@@ -1,10 +1,10 @@
-# CertiFlow — Production Deployment & Scaling Architecture
+# CertiFlow — Production Deployment & AWS Cloud Architecture
 
 This document outlines the enterprise production architecture designed to scale CertiFlow to **100,000+ active users**, handling **30,000 peak hourly PDF certificate generations** and **30,000 peak hourly WhatsApp notifications**.
 
 ---
 
-## 🏗️ 1. High-Level Architecture Topology
+## 🏗️ 1. High-Level AWS Production Topology
 
 ```
                               [ Cloudflare Enterprise CDN / DDoS Shield ]
@@ -22,7 +22,7 @@ This document outlines the enterprise production architecture designed to scale 
     [ AWS Aurora PostgreSQL ]            [ AWS ElastiCache Redis ]         [ S3 + CloudFront CDN ]
     • Primary Writer                     • Redis Cluster (Multi-AZ)        • Vector Certificate PDFs
     • 3 Read Replicas                    • BullMQ Queue Engine             • Direct Presigned URLs
-    • PgBouncer Connection Pool          • Verification In-Memory Cache    • AES-256 Server Encryption
+    • PgBouncer Connection Pool          • Verification In-Memory Cache    • AES-256 KMS Encryption
                  ▲                                │
                  │                                ▼
                  │                     [ ECS Fargate: Workers ]
@@ -30,67 +30,77 @@ This document outlines the enterprise production architecture designed to scale 
                  │                     • WhatsApp Dispatch Pool (6 - 24 Tasks)
                  │                     • SLA Escalation Worker (2 Tasks)
                  │                                │
-                 └────────────────────────────────┴──────────────► [ Meta WhatsApp Business API ]
+                 │                                ▼
+                 └──────────────────► [ AWS MSK (Apache Kafka) ] ──► [ Meta WhatsApp API ]
+                                       • Audit Event Backbone
+                                       • High-Throughput Analytics
 ```
 
 ---
 
-## ⚡ 2. Scaling Bottlenecks & Mitigations
+## ⚡ 2. Enterprise Cloud Services Breakdown
+
+### 1. Container Management: AWS ECR & ECS Fargate / EC2
+- **AWS Elastic Container Registry (ECR):** Hosts immutable, vulnerability-scanned Docker container images tagged with Git SHA (`certiflow-api:sha-xxxx`, `certiflow-worker:sha-xxxx`, `certiflow-frontend:sha-xxxx`).
+- **AWS ECS Fargate / EC2 Auto Scaling:**
+  - **API Cluster:** Deployed across 3 Availability Zones (AZs) behind an AWS Application Load Balancer (ALB) with SSL/TLS termination and path routing (`/api/*` to API tasks, `/api/events/stream` to sticky SSE tasks).
+  - **Background Worker Cluster:** Autoscales based on BullMQ queue depth (`jobs_waiting > 100`) and CPU utilization (> 70%).
+
+### 2. Relational Database: AWS Aurora PostgreSQL
+- **Multi-AZ Replication:** Dedicated primary writer instance (`db.r6g.xlarge`) with 3 auto-scaling read replicas (`db.r6g.large`) distributed across separate Availability Zones.
+- **PgBouncer Connection Pooling:** Transaction-mode pooling deployed in front of Aurora to support 10,000+ client sessions with only 100 physical DB connections.
+- **Pessimistic Concurrency Control:** High-concurrency approvals leverage PostgreSQL `SELECT FOR UPDATE` on the primary writer, preventing race conditions.
+
+### 3. Caching & Queue Engine: AWS ElastiCache for Redis
+- **Redis Cluster:** Multi-AZ with Automatic Failover (`cache.r6g.large`).
+- **Partitioning:**
+  - In-Memory Public Verification Cache: 1-hour TTL with instant purge on revocation.
+  - BullMQ Queue Backbone: Issuance jobs, delayed SLA timers, and WhatsApp retry queues.
+  - Idempotency Locks: `cert:issued:<batchId>:<candidateId>` preventing duplicate certificate issuance.
+
+### 4. Event Streaming Backbone: AWS MSK (Managed Streaming for Apache Kafka)
+- **High-Throughput Audit Streaming:** Decouples heavy audit logging and analytics processing from transactional API paths using the pluggable `KafkaEventBusAdapter`.
+- **Topics:** `certiflow.events.batch_approval`, `certiflow.events.issuance`, `certiflow.events.revocation`.
+
+### 5. Secure Object Storage: AWS S3 + AWS KMS
+- **Private S3 Bucket:** Certificate PDFs are stored in an encrypted S3 bucket (`SSE-KMS` Customer Managed Keys) with `Block Public Access` strictly enforced.
+- **Pre-signed Scoped Access:** The API issues short-lived, cryptographically signed S3 URLs (15-minute expiration) after validating user role authorization.
+
+---
+
+## ⚡ 3. Scaling Bottlenecks & Mitigations
 
 ### 30,000 Peak Hourly PDF Generation
-* **Bottleneck:** Generating 30,000 PDFs per hour translates to **~8.3 PDFs per second sustained, with spikes up to 35 PDFs/sec**. PDFKit consumes CPU and memory (~30MB RAM per render). Generating them in HTTP request handlers would exhaust event-loop threads.
+* **Bottleneck:** Sustained **~8.3 PDFs/sec, peaking up to 35 PDFs/sec**. Vector PDF rendering with PDFKit consumes ~30MB RAM per render.
 * **Mitigation:**
-  1. **Decoupled Asynchronous Processing:** Generation is strictly handled by `issuanceQueue` running on autoscaling ECS Fargate worker containers.
-  2. **Worker Horizontal Pod Autoscaling (HPA):** Auto-scales worker containers based on BullMQ `queue_depth > 100` or CPU utilization > 70%.
-  3. **Direct S3 Streaming & Offloading:** Workers pipe PDF document streams directly to AWS S3 using multipart upload, avoiding local disk saturation.
-  4. **Pre-computed Asset Caching:** Authority logos, state crests, and watermark vector paths are pre-loaded in worker memory at startup to avoid repeated disk I/O.
+  1. **Decoupled Asynchronous Processing:** Offloaded to `issuanceQueue` on ECS Fargate workers.
+  2. **Direct S3 Multipart Streaming:** Workers stream PDF output directly to S3 without local disk writes.
+  3. **Memory Asset Pre-computation:** Government seals, watermarks, and authority signature vector paths are cached in worker memory at startup.
 
 ### 30,000 Peak Hourly WhatsApp Delivery
-* **Bottleneck:** External WhatsApp Business API (via Meta Cloud API or BSPs like Gupshup/Twilio) imposes rate limits (typically 250 to 500 messages/sec per phone number tier) and experiences network latency, transient timeouts, or 503 throttling.
+* **Bottleneck:** External WhatsApp API rate limits (250-500 msgs/sec per phone number tier) and transient network drops.
 * **Mitigation:**
-  1. **BullMQ Token Bucket Rate Limiting:** Enforces `limiter: { max: 250, duration: 1000 }` on `whatsappQueue` to strictly respect Meta API quotas.
-  2. **Exponential Backoff Retries:** 8 retry attempts with jittered exponential delay (`500ms * 2^attempt`), allowing transient network drops and gateway downtime to self-heal.
-  3. **Dead Letter Queue (DLQ):** Unrecoverable delivery failures after 8 attempts are moved to `whatsapp-dlq` for operator inspection and SMS fallback routing.
-
-### Database Throughput & Concurrency
-* **Bottleneck:** 100,000 active users and high-volume batch approvals can exhaust PostgreSQL connection limits and cause row lock contention.
-* **Mitigation:**
-  1. **PgBouncer Pooling:** Deployed in front of Aurora PostgreSQL in transaction pooling mode, enabling thousands of client connections with only 100 physical DB connections.
-  2. **Read/Write Splitting:** Read queries (batch browsing, candidate listing, audit timelines) route to Aurora Read Replicas; state mutations and `SELECT FOR UPDATE` run exclusively on the Primary Writer.
-  3. **Redis Caching for Public Verification:** 99.8% of public verification queries hit Redis (`cert:public:${certNumber}`) with sub-millisecond latency (1 hour TTL), completely shielding the database from viral verification spikes.
+  1. **BullMQ Token Bucket Limiter:** Enforces `limiter: { max: 250, duration: 1000 }` on `whatsappQueue`.
+  2. **Exponential Backoff Retries:** 8 retry attempts with jittered exponential delay (`500ms * 2^attempt`).
+  3. **Dead Letter Queue (DLQ):** Unrecoverable failures after 8 attempts are moved to `whatsapp-dlq` for operator inspection and SMS fallback routing.
 
 ---
 
-## 🛡️ 3. Storage & Security Architecture
+## 📊 4. Monitoring, Observability & CI/CD Pipeline
 
-1. **Private S3 Bucket Policy:**
-   - Certificate PDFs are stored in private AWS S3 buckets with `Block Public Access` fully enabled.
-   - Files are encrypted at rest using AWS KMS Customer Managed Keys (`SSE-KMS`).
-   - Access to PDFs is granted exclusively via **Short-Lived Signed URLs** (valid for 15 minutes) generated by the API server after validating the requester's RBAC session.
-2. **Data Privacy & DPDP Compliance:**
-   - Unauthenticated public endpoints strictly filter all sensitive PII (Aadhar last 4, mobile phone numbers, guardian names, and internal audit logs are stripped at the service layer).
-3. **Audit Trail Immutability:**
-   - Audit records are stored in an append-only PostgreSQL table without `UPDATE` or `DELETE` grants for application roles.
-   - In production, audit logs are additionally streamed to AWS CloudWatch Logs / S3 with **Object Lock (WORM - Write Once Read Many)** for legal compliance.
-
----
-
-## 📊 4. Monitoring & Observability
-
-- **Application Metrics (Prometheus + Grafana):**
-  - BullMQ Queue Metrics: `jobs_waiting`, `jobs_active`, `jobs_failed`, `job_processing_duration_seconds`.
-  - HTTP Server Metrics: Request latency percentiles (p50, p95, p99), HTTP 4xx/5xx rates.
-  - WhatsApp Delivery Success Rate & Retry Distribution.
+- **CI/CD Pipeline (`.github/workflows/ci.yml`):**
+  - Triggers strictly on push and pull requests to `main`.
+  - Executes TypeScript linting, Prisma schema validation, full Vitest integration suite (all 6 critical moments), and Docker image build verification.
+- **Metrics (Prometheus & Grafana):**
+  - BullMQ queue metrics: `jobs_waiting`, `jobs_active`, `jobs_failed`, `job_processing_duration_seconds`.
+  - HTTP metrics: Request latency percentiles (p50, p95, p99), error rates (4xx, 5xx).
+  - WhatsApp delivery success rate & retry histograms.
 - **Distributed Tracing (OpenTelemetry + AWS X-Ray):**
-  - Traces the end-to-end lifecycle from batch submission -> approvals -> BullMQ job dispatch -> PDF generation -> WhatsApp dispatch.
-- **Alerting Rules:**
-  - `P1 Alert`: BullMQ failed jobs > 50 in 5 minutes -> PagerDuty alert to on-call engineer.
-  - `P1 Alert`: Postgres connection pool utilization > 85% -> Auto-scale pool and alert.
-  - `P2 Alert`: SLA escalation breach detected -> Slack alert to state governance channel.
+  - Tracks correlation IDs from HTTP batch upload -> district approval -> BullMQ worker -> S3 PDF generation -> WhatsApp dispatch.
 
 ---
 
-## 💰 5. Estimated Monthly Infrastructure Cost Breakdown (At Scale)
+## 💰 5. Estimated Monthly Cloud Cost Breakdown (At Scale)
 
 Estimated infrastructure cost for **100,000 active users, 30,000 peak hourly PDFs & WhatsApp notifications**:
 
@@ -101,8 +111,8 @@ Estimated infrastructure cost for **100,000 active users, 30,000 peak hourly PDF
 | **AWS ECS Fargate (API & Workers)** | 12 vCPU / 24 GB RAM baseline, autoscaling to 48 vCPU during peaks | \$480.00 |
 | **AWS S3 Storage & KMS** | 500,000 PDFs (~100 KB each = 50 GB storage), KMS requests, Data Transfer | \$35.00 |
 | **Cloudflare Enterprise / CDN** | CDN caching, WAF, DDoS protection, SSL termination | \$200.00 |
-| **Monitoring & Logging** | Datadog / AWS CloudWatch Logs & Metrics (50 GB ingestion) | \$150.00 |
+| **AWS MSK (Kafka) / Monitoring** | 2-broker Kafka cluster + Datadog / CloudWatch Logs ingestion | \$350.00 |
 | **WhatsApp Business API** | 100,000 Utility Notifications @ approx. \$0.004 per message | \$400.00 |
-| **Total Estimated Monthly Cost** | | **~\$2,225.00 / month** |
+| **Total Estimated Monthly Cost** | | **~\$2,425.00 / month** |
 
-*Note: Unit cost per issued and delivered certificate at this scale is less than **$0.025 per candidate**.*
+*Note: Unit cost per issued and delivered certificate at scale is less than **$0.025 per candidate**.*
