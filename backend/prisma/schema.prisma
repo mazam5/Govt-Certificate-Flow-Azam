@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  TRAINING_CENTRE
+  DISTRICT_OFFICER
+  QUALITY_TEAM
+  STATE_OFFICE
+  PUBLIC
+}
+
+enum BatchStatus {
+  DRAFT
+  SUBMITTED
+  DISTRICT_APPROVED
+  QUALITY_APPROVED
+  STATE_APPROVED
+  CHANGES_REQUESTED
+  ESCALATED
+}
+
+enum ReviewLevel {
+  DISTRICT
+  QUALITY
+  STATE
+  COMPLETED
+  REJECTED
+}
+
+enum CertificateStatus {
+  VALID
+  REVOKED
+}
+
+enum DeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
+model User {
+  id        String          @id @default(uuid())
+  name      String
+  email     String          @unique
+  role      Role
+  district  String?
+  centreId  String?
+  centre    TrainingCentre? @relation(fields: [centreId], references: [id])
+  createdAt DateTime        @default(now())
+
+  approvals BatchApproval[]
+}
+
+model TrainingCentre {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  district  String
+  createdAt DateTime @default(now())
+
+  users   User[]
+  batches Batch[]
+}
+
+model Batch {
+  id                 String      @id @default(uuid())
+  batchNumber        String      @unique
+  centreId           String
+  centre             TrainingCentre @relation(fields: [centreId], references: [id])
+  courseName         String
+  totalCandidates    Int         @default(0)
+  status             BatchStatus @default(DRAFT)
+  currentReviewLevel ReviewLevel @default(DISTRICT)
+  version            Int         @default(1)
+  rejectionReason    String?
+  rejectedBy         String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  candidates   Candidate[]
+  approvals    BatchApproval[]
+  certificates Certificate[]
+
+  @@index([status])
+  @@index([centreId])
+}
+
+model Candidate {
+  id             String   @id @default(uuid())
+  batchId        String
+  batch          Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  name           String
+  fatherName     String
+  dateOfBirth    String
+  gender         String
+  aadharLast4    String
+  phone          String
+  course         String
+  grade          String
+  completionDate String
+  createdAt      DateTime @default(now())
+
+  certificate Certificate?
+  delivery    DeliveryLog?
+
+  @@index([batchId])
+}
+
+model BatchApproval {
+  id          String   @id @default(uuid())
+  batchId     String
+  batch       Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  officerId   String
+  officer     User     @relation(fields: [officerId], references: [id])
+  officerName String
+  role        Role
+  level       String
+  version     Int      @default(1)
+  status      String   @default("APPROVED") // APPROVED | REVOKED_ON_RESUBMIT
+  comments    String?
+  approvedAt  DateTime @default(now())
+
+  @@unique([batchId, officerId, version, level])
+  @@index([batchId, version])
+}
+
+model Certificate {
+  id               String            @id @default(uuid())
+  certNumber       String            @unique
+  batchId          String
+  batch            Batch             @relation(fields: [batchId], references: [id])
+  candidateId      String            @unique
+  candidate        Candidate         @relation(fields: [candidateId], references: [id])
+  candidateName    String
+  courseName       String
+  centreName       String
+  district         String
+  issueDate        DateTime          @default(now())
+  status           CertificateStatus @default(VALID)
+  revocationReason String?
+  revokedAt        DateTime?
+  revokedBy        String?
+  pdfPath          String?
+  qrCodeData       String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  deliveryLogs DeliveryLog[]
+
+  @@unique([batchId, candidateId])
+  @@index([certNumber])
+  @@index([status])
+}
+
+model DeliveryLog {
+  id            String         @id @default(uuid())
+  certificateId String
+  certificate   Certificate    @relation(fields: [certificateId], references: [id], onDelete: Cascade)
+  candidateId   String         @unique
+  candidate     Candidate      @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  phone         String
+  status        DeliveryStatus @default(PENDING)
+  attempts      Int            @default(0)
+  lastAttemptAt DateTime?
+  errorMessage  String?
+  deliveredAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([certificateId])
+  @@index([status])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String
+  actorName  String
+  role       String
+  action     String
+  targetType String   // BATCH | CERTIFICATE | APPROVAL | SLA
+  targetId   String
+  metadata   String?  // JSON stringified metadata
+  timestamp  DateTime @default(now())
+
+  @@index([targetId])
+  @@index([action])
+  @@index([timestamp])
+}
