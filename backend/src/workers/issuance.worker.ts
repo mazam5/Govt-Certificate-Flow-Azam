@@ -101,7 +101,7 @@ export const issuanceWorker = new Worker(
 
       issuedCount++;
 
-      // Enqueue WhatsApp delivery job
+      // Enqueue WhatsApp delivery job with colon-free custom jobId
       await whatsappQueue.add(
         'send-certificate-whatsapp',
         {
@@ -114,7 +114,7 @@ export const issuanceWorker = new Worker(
           batchId: batch.id,
         },
         {
-          jobId: `wa:${certificate.id}`, // Idempotent BullMQ job ID
+          jobId: `wa__${certificate.id}`,
         }
       );
     }

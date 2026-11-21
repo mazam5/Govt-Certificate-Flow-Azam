@@ -1,4 +1,4 @@
-import { slaQueue, QUEUE_NAMES } from '../queues/queues.js';
+import { slaQueue } from '../queues/queues.js';
 import { prisma } from '../config/prisma.js';
 import { config } from '../config/env.js';
 import { AuditService } from './audit.service.js';
@@ -6,6 +6,13 @@ import { sseHub } from '../events/sse.js';
 import { BatchStatus } from '@prisma/client';
 
 export class SlaService {
+  /**
+   * BullMQ custom job IDs cannot contain `:` in v5+. Use `__` as separator.
+   */
+  private static getSlaJobId(batchId: string, version: number, targetState: BatchStatus): string {
+    return `sla__${batchId}__v${version}__${targetState}`;
+  }
+
   /**
    * Schedule SLA escalation delayed job for a batch entering a review state
    */
@@ -15,7 +22,7 @@ export class SlaService {
     targetState: BatchStatus,
     timeoutMs: number = config.slaTimeoutMs
   ): Promise<string> {
-    const jobId = `sla:${batchId}:v${version}:${targetState}`;
+    const jobId = this.getSlaJobId(batchId, version, targetState);
 
     // Remove existing job if any
     try {
@@ -48,7 +55,7 @@ export class SlaService {
    * Cancel pending SLA job when state advances or changes are requested
    */
   public static async cancelSla(batchId: string, version: number, state: BatchStatus): Promise<void> {
-    const jobId = `sla:${batchId}:v${version}:${state}`;
+    const jobId = this.getSlaJobId(batchId, version, state);
     try {
       const job = await slaQueue.getJob(jobId);
       if (job) {
@@ -80,7 +87,7 @@ export class SlaService {
 
     // Only escalate if batch is still untouched in the exact state and version
     if (batch.status === targetState && batch.version === version) {
-      const updated = await prisma.batch.update({
+      await prisma.batch.update({
         where: { id: batchId },
         data: {
           status: BatchStatus.ESCALATED,
