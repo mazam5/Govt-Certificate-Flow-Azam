@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams, Link } from 'react-router-dom';
 import { QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient';
 import { useAuthStore } from './store/authStore';
-import type { Persona } from './types';
 import { api } from './services/api';
 import { PersonaSwitcher } from './components/PersonaSwitcher';
 import { BatchUploadModal } from './components/BatchUploadModal';
 import { BatchDetailView } from './components/BatchDetailView';
 import { PublicVerificationView } from './components/PublicVerificationView';
+import { LoginPage } from './components/LoginPage';
 import {
   UploadCloud,
   FileSpreadsheet,
@@ -16,32 +16,94 @@ import {
   Search,
   Building,
   Smartphone,
-  ShieldCheck,
+  Lock,
+  ArrowRight,
 } from 'lucide-react';
 
-// Wrapper for Direct /verify/:certNumber route
-const PublicVerifyRoute: React.FC = () => {
+// ============================================================================
+// Public-by-Default Landing Page (Unauthenticated Entry Point)
+// ============================================================================
+const PublicLandingPage: React.FC = () => {
   const { certNumber } = useParams<{ certNumber?: string }>();
-  const activePersona = useAuthStore((s) => s.activePersona);
-  return <PublicVerificationView activePersona={activePersona} initialCertNumber={certNumber} />;
+  const { isAuthenticated, activePersona } = useAuthStore();
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
+      {/* Public Header */}
+      <header className="bg-slate-900 border-b border-slate-800 text-white shadow-md sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8 flex items-center justify-between">
+          <Link to="/" className="flex items-center space-x-3 group">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white font-black flex items-center justify-center text-lg shadow-sm group-hover:bg-indigo-500 transition">
+              C
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-bold tracking-tight text-white text-base">CertiFlow</span>
+                <span className="px-2 py-0.5 text-[11px] font-semibold bg-indigo-950 text-indigo-300 border border-indigo-700 rounded-full">
+                  Pragati Skills Mission
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">National Skilling Certificate Public Registry</p>
+            </div>
+          </Link>
+
+          <div className="flex items-center space-x-3">
+            {isAuthenticated ? (
+              <Link
+                to="/dashboard"
+                className="flex items-center space-x-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition"
+              >
+                <span>Staff Workspace ({activePersona?.name})</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            ) : (
+              <Link
+                to="/login"
+                className="flex items-center space-x-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Staff / Admin Login</span>
+              </Link>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Public Verification Body */}
+      <main className="flex-1 py-6">
+        <PublicVerificationView activePersona={activePersona} initialCertNumber={certNumber} />
+      </main>
+
+      {/* Public Footer */}
+      <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-500">
+        Pragati Skills Mission — CertiFlow • Official Public Verification Registry • Zero-PII Compliance
+      </footer>
+    </div>
+  );
 };
 
-// Wrapper for /batch/:id route
+// ============================================================================
+// Protected Batch Detail View
+// ============================================================================
 const BatchDetailRoute: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const activePersona = useAuthStore((s) => s.activePersona);
+  const { isAuthenticated, activePersona } = useAuthStore();
   const qClient = useQueryClient();
+
+  if (!isAuthenticated || !activePersona) {
+    return <Navigate to="/login" replace />;
+  }
 
   const { data: batch, isLoading, refetch } = useQuery({
     queryKey: ['batch', id],
-    queryFn: () => (id ? api.getBatchById(id, activePersona) : Promise.reject('No ID')),
+    queryFn: () => (id ? api.getBatchById(id) : Promise.reject('No ID')),
     enabled: !!id,
   });
 
   if (isLoading || !batch) {
     return (
-      <div className="flex items-center justify-center py-20 text-xs text-slate-500">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center py-20 text-xs text-slate-500">
         <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mr-2" />
         Loading batch details...
       </div>
@@ -49,30 +111,41 @@ const BatchDetailRoute: React.FC = () => {
   }
 
   return (
-    <BatchDetailView
-      batch={batch}
-      activePersona={activePersona}
-      onBack={() => navigate(-1)}
-      onRefresh={() => {
-        refetch();
-        qClient.invalidateQueries({ queryKey: ['batches'] });
-      }}
-      onOpenVerify={(certNo) => navigate(`/verify/${certNo}`)}
-    />
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
+      <PersonaSwitcher activePersona={activePersona} />
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6 sm:px-6 lg:px-8">
+        <BatchDetailView
+          batch={batch}
+          activePersona={activePersona}
+          onBack={() => navigate('/dashboard')}
+          onRefresh={() => {
+            refetch();
+            qClient.invalidateQueries({ queryKey: ['batches'] });
+          }}
+          onOpenVerify={(certNo) => navigate(`/verify/${certNo}`)}
+        />
+      </main>
+    </div>
   );
 };
 
-// Main Workspace Component with TanStack Query
-const WorkspaceDashboard: React.FC<{ roleFilter?: string }> = ({ roleFilter: _roleFilter }) => {
+// ============================================================================
+// Authenticated Staff Workspace Dashboard
+// ============================================================================
+const WorkspaceDashboard: React.FC = () => {
   const navigate = useNavigate();
   const qClient = useQueryClient();
-  const activePersona = useAuthStore((s) => s.activePersona);
+  const { isAuthenticated, activePersona } = useAuthStore();
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
 
+  if (!isAuthenticated || !activePersona) {
+    return <Navigate to="/login" replace />;
+  }
+
   const { data: batches = [], isLoading, refetch } = useQuery({
     queryKey: ['batches', activePersona.id],
-    queryFn: () => api.getBatches(activePersona),
+    queryFn: () => api.getBatches(),
   });
 
   const filteredBatches = batches.filter((b) => {
@@ -84,6 +157,27 @@ const WorkspaceDashboard: React.FC<{ roleFilter?: string }> = ({ roleFilter: _ro
       b.status.toLowerCase().includes(q)
     );
   });
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'DRAFT':
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-700 border border-slate-300">DRAFT</span>;
+      case 'SUBMITTED':
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-300 animate-pulse">UNDER DISTRICT REVIEW</span>;
+      case 'DISTRICT_APPROVED':
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-teal-100 text-teal-800 border border-teal-300">DISTRICT APPROVED</span>;
+      case 'QUALITY_APPROVED':
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-purple-100 text-purple-800 border border-purple-300">QUALITY VERIFIED</span>;
+      case 'STATE_APPROVED':
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">STATE APPROVED / ISSUED</span>;
+      case 'CHANGES_REQUESTED':
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-100 text-rose-800 border border-rose-300">CHANGES REQUESTED</span>;
+      case 'ESCALATED':
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-900 border border-amber-400 font-extrabold animate-bounce">⚠️ SLA ESCALATED</span>;
+      default:
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-800">{status}</span>;
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -159,62 +253,25 @@ const WorkspaceDashboard: React.FC<{ roleFilter?: string }> = ({ roleFilter: _ro
                     </span>
                     <span className="text-[11px] font-mono text-slate-400">v{batch.version}</span>
                   </div>
-
-                  <h4 className="text-sm font-bold text-slate-900 line-clamp-1 mb-1">
-                    {batch.courseName}
-                  </h4>
-
-                  <div className="text-xs text-slate-500 space-y-1 mb-4">
-                    <div className="flex items-center">
-                      <Building className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                      <span>{batch.centre?.name || 'Pragati Centre'}</span>
-                    </div>
-                    <div>{batch.totalCandidates} Candidates Enrolled</div>
+                  <h4 className="text-sm font-bold text-slate-900 line-clamp-1">{batch.courseName}</h4>
+                  <div className="flex items-center space-x-1.5 text-xs text-slate-500 mt-1">
+                    <Building className="w-3.5 h-3.5" />
+                    <span className="truncate">{batch.centre?.name || 'Training Centre'}</span>
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-                  <div>
-                    {batch.status === 'DRAFT' && (
-                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[10px]">
-                        DRAFT
-                      </span>
-                    )}
-                    {batch.status === 'SUBMITTED' && (
-                      <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold text-[10px]">
-                        DISTRICT REVIEW ({districtApprovals.length}/2)
-                      </span>
-                    )}
-                    {batch.status === 'DISTRICT_APPROVED' && (
-                      <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 font-bold text-[10px]">
-                        DISTRICT APPROVED
-                      </span>
-                    )}
-                    {batch.status === 'QUALITY_APPROVED' && (
-                      <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-bold text-[10px]">
-                        QUALITY APPROVED
-                      </span>
-                    )}
-                    {batch.status === 'STATE_APPROVED' && (
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                        ISSUED
-                      </span>
-                    )}
-                    {batch.status === 'CHANGES_REQUESTED' && (
-                      <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold text-[10px]">
-                        CHANGES REQUESTED
-                      </span>
-                    )}
-                    {batch.status === 'ESCALATED' && (
-                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-black text-[10px]">
-                        ⚠️ SLA ESCALATED
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <div>{getStatusBadge(batch.status)}</div>
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-slate-700">
+                      {batch.totalCandidates} Candidates
+                    </span>
+                    {districtApprovals.length > 0 && batch.status === 'SUBMITTED' && (
+                      <span className="block text-[10px] text-blue-600 font-medium">
+                        {districtApprovals.length}/2 Approvals
                       </span>
                     )}
                   </div>
-
-                  <span className="text-indigo-600 font-semibold text-[11px]">
-                    View Details →
-                  </span>
                 </div>
               </div>
             );
@@ -222,25 +279,29 @@ const WorkspaceDashboard: React.FC<{ roleFilter?: string }> = ({ roleFilter: _ro
         </div>
       )}
 
-      {/* Accessible Radix Upload Modal */}
-      <BatchUploadModal
-        isOpen={isUploadModalOpen}
-        onClose={() => setIsUploadModalOpen(false)}
-        onSuccess={() => {
-          refetch();
-          qClient.invalidateQueries({ queryKey: ['batches'] });
-        }}
-        activePersona={activePersona}
-      />
+      {/* Upload Modal */}
+      {isUploadModalOpen && (
+        <BatchUploadModal
+          isOpen={isUploadModalOpen}
+          onClose={() => setIsUploadModalOpen(false)}
+          onSuccess={() => {
+            setIsUploadModalOpen(false);
+            refetch();
+            qClient.invalidateQueries({ queryKey: ['batches'] });
+          }}
+          activePersona={activePersona}
+        />
+      )}
     </div>
   );
 };
 
-// Main Layout Component
-const MainLayout: React.FC = () => {
-  const navigate = useNavigate();
+// ============================================================================
+// Staff Main Layout (Protected)
+// ============================================================================
+const StaffLayout: React.FC = () => {
   const qClient = useQueryClient();
-  const { activePersona, setPersona } = useAuthStore();
+  const { isAuthenticated, activePersona, jwtToken } = useAuthStore();
   const [liveAlerts, setLiveAlerts] = useState<string[]>([]);
   const [deliveryProgress, setDeliveryProgress] = useState<{
     deliveredCount: number;
@@ -248,14 +309,11 @@ const MainLayout: React.FC = () => {
     percentage: number;
   } | null>(null);
 
-  // Initialize signed JWT on load
+  // Real-time Server-Sent Events Listener with Authenticated Token
   useEffect(() => {
-    setPersona(activePersona);
-  }, []);
+    if (!isAuthenticated || !jwtToken) return;
 
-  // SSE Stream Listener
-  useEffect(() => {
-    const sse = new EventSource('/api/events/stream');
+    const sse = new EventSource(`/api/events/stream?token=${jwtToken}`);
 
     sse.addEventListener('BATCH_STATUS_UPDATED', (e: MessageEvent) => {
       const payload = JSON.parse(e.data);
@@ -306,31 +364,16 @@ const MainLayout: React.FC = () => {
     });
 
     return () => sse.close();
-  }, [qClient]);
+  }, [isAuthenticated, jwtToken, qClient]);
 
-  // Navigate when persona changes
-  const handlePersonaSelect = async (persona: Persona) => {
-    await setPersona(persona);
-    if (persona.role === 'PUBLIC') {
-      navigate('/verify');
-    } else if (persona.role === 'TRAINING_CENTRE') {
-      navigate('/centre');
-    } else if (persona.role === 'DISTRICT_OFFICER') {
-      navigate('/district');
-    } else if (persona.role === 'QUALITY_TEAM') {
-      navigate('/quality');
-    } else if (persona.role === 'STATE_OFFICE') {
-      navigate('/state');
-    }
-  };
+  if (!isAuthenticated || !activePersona) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
-      {/* Persona Switcher Top Bar */}
-      <PersonaSwitcher
-        activePersona={activePersona}
-        onSelectPersona={handlePersonaSelect}
-      />
+      {/* Persistent Reviewer Role Switcher Top Bar */}
+      <PersonaSwitcher activePersona={activePersona} />
 
       {/* Live SSE Alert Banner */}
       {liveAlerts.length > 0 && (
@@ -370,50 +413,47 @@ const MainLayout: React.FC = () => {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6 sm:px-6 lg:px-8">
-        {/* Navigation Tabs */}
-        <div className="flex items-center space-x-2 mb-6 border-b border-slate-200 pb-3">
-          <button
-            onClick={() => {
-              if (activePersona.role === 'TRAINING_CENTRE') navigate('/centre');
-              else if (activePersona.role === 'DISTRICT_OFFICER') navigate('/district');
-              else if (activePersona.role === 'QUALITY_TEAM') navigate('/quality');
-              else if (activePersona.role === 'STATE_OFFICE') navigate('/state');
-              else navigate('/centre');
-            }}
-            className="px-4 py-2 text-xs font-bold rounded-lg bg-indigo-600 text-white shadow-xs"
-          >
-            Batch Issuance Workflow
-          </button>
-          <button
-            onClick={() => navigate('/verify')}
-            className="px-4 py-2 text-xs font-bold rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition flex items-center space-x-1"
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Public Verification Portal</span>
-          </button>
-        </div>
-
-        {/* Dynamic Route View */}
-        <Routes>
-          <Route path="/" element={<Navigate to="/centre" replace />} />
-          <Route path="/centre" element={<WorkspaceDashboard roleFilter="TRAINING_CENTRE" />} />
-          <Route path="/district" element={<WorkspaceDashboard roleFilter="DISTRICT_OFFICER" />} />
-          <Route path="/quality" element={<WorkspaceDashboard roleFilter="QUALITY_TEAM" />} />
-          <Route path="/state" element={<WorkspaceDashboard roleFilter="STATE_OFFICE" />} />
-          <Route path="/batch/:id" element={<BatchDetailRoute />} />
-          <Route path="/verify" element={<PublicVerifyRoute />} />
-          <Route path="/verify/:certNumber" element={<PublicVerifyRoute />} />
-        </Routes>
+        <WorkspaceDashboard />
       </main>
     </div>
   );
 };
 
+// ============================================================================
+// Root Application
+// ============================================================================
 export const App: React.FC = () => {
+  const { initSession } = useAuthStore();
+
+  useEffect(() => {
+    initSession();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <MainLayout />
+        <Routes>
+          {/* Public Zone (Default Entry Point) */}
+          <Route path="/" element={<PublicLandingPage />} />
+          <Route path="/verify" element={<PublicLandingPage />} />
+          <Route path="/verify/:certNumber" element={<PublicLandingPage />} />
+
+          {/* Staff Login & 1-Click Reviewer Access */}
+          <Route path="/login" element={<LoginPage />} />
+
+          {/* Authenticated Staff Workspace */}
+          <Route path="/dashboard" element={<StaffLayout />} />
+          <Route path="/batch/:id" element={<BatchDetailRoute />} />
+
+          {/* Backwards-compatible Role Redirection */}
+          <Route path="/centre" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/district" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/quality" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/state" element={<Navigate to="/dashboard" replace />} />
+
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </BrowserRouter>
     </QueryClientProvider>
   );

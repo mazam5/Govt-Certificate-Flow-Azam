@@ -18,6 +18,8 @@ export type DeliveryStatus = 'PENDING' | 'DELIVERED' | 'FAILED';
 export interface Persona {
   id: string;
   name: string;
+  key?: string;
+  email?: string;
   role: Role;
   district?: string | null;
   description: string;

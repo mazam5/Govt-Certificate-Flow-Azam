@@ -4,6 +4,7 @@ import { app } from '../app.js';
 import { prisma } from '../config/prisma.js';
 import { redis } from '../config/redis.js';
 import { DEFAULT_PERSONAS } from '../middleware/auth.js';
+import { JwtService } from '../services/jwt.service.js';
 import { BatchService } from '../services/batch.service.js';
 import { CertificateService } from '../services/certificate.service.js';
 import { SlaService } from '../services/sla.service.js';
@@ -13,6 +14,12 @@ import { whatsappWorker } from '../workers/whatsapp.worker.js';
 
 describe('CertiFlow Platform - 6 Critical Moments Integration Tests', () => {
   let testCentreId: string;
+
+  function authHeader(personaKey: string): string {
+    const persona = DEFAULT_PERSONAS[personaKey];
+    const token = JwtService.sign(persona);
+    return `Bearer ${token}`;
+  }
 
   beforeAll(async () => {
     // Ensure test training centre exists
@@ -72,7 +79,7 @@ Kunal Das,Amit Das,bad-date,Male,3412,9723456789,Solar PV Tech,B,2026-02-15`;
 
     const response = await request(app)
       .post('/api/batches/upload')
-      .set('x-persona', 'anika')
+      .set('Authorization', authHeader('anika'))
       .field('courseName', 'Solar PV Tech')
       .attach('file', Buffer.from(malformedCsv), 'test_malformed.csv');
 
@@ -124,11 +131,11 @@ Kunal Das,Amit Das,bad-date,Male,3412,9723456789,Solar PV Tech,B,2026-02-15`;
     const [resDev, resMeera] = await Promise.all([
       request(app)
         .post(`/api/batches/${batch.id}/approve`)
-        .set('x-persona', 'dev')
+        .set('Authorization', authHeader('dev'))
         .send({ comments: 'District approval by Dev' }),
       request(app)
         .post(`/api/batches/${batch.id}/approve`)
-        .set('x-persona', 'meera')
+        .set('Authorization', authHeader('meera'))
         .send({ comments: 'District approval by Meera' }),
     ]);
 
@@ -156,7 +163,7 @@ Kunal Das,Amit Das,bad-date,Male,3412,9723456789,Solar PV Tech,B,2026-02-15`;
     // 5. Assert duplicate approval from same officer or in advanced state is rejected with 400
     const duplicateRes = await request(app)
       .post(`/api/batches/${batch.id}/approve`)
-      .set('x-persona', 'dev')
+      .set('Authorization', authHeader('dev'))
       .send({ comments: 'Duplicate vote' });
 
     expect(duplicateRes.status).toBe(400);
@@ -324,7 +331,7 @@ Kunal Das,Amit Das,bad-date,Male,3412,9723456789,Solar PV Tech,B,2026-02-15`;
     // 3. State Office (Farah) revokes the certificate
     const revokeRes = await request(app)
       .post(`/api/certificates/${cert.certNumber}/revoke`)
-      .set('x-persona', 'farah')
+      .set('Authorization', authHeader('farah'))
       .send({ reason: 'Audit discrepancy identified in training logs' });
 
     expect(revokeRes.status).toBe(200);
@@ -418,7 +425,7 @@ Kunal Das,Amit Das,bad-date,Male,3412,9723456789,Solar PV Tech,B,2026-02-15`;
     // 3. Officer Meera reviews and requests changes (sends back)
     await request(app)
       .post(`/api/batches/${batch.id}/request-changes`)
-      .set('x-persona', 'meera')
+      .set('Authorization', authHeader('meera'))
       .send({ reason: 'Attendance records must be re-verified with biometric logs.' });
 
     const batchAfterChanges = await prisma.batch.findUnique({ where: { id: batch.id } });
@@ -427,7 +434,7 @@ Kunal Das,Amit Das,bad-date,Male,3412,9723456789,Solar PV Tech,B,2026-02-15`;
     // 4. Centre (Anika) resubmits the batch
     const resubmitRes = await request(app)
       .post(`/api/batches/${batch.id}/resubmit`)
-      .set('x-persona', 'anika');
+      .set('Authorization', authHeader('anika'));
 
     expect(resubmitRes.status).toBe(200);
     expect(resubmitRes.body.data.version).toBe(2);

@@ -1,9 +1,12 @@
 import { Router } from 'express';
 import { BatchController, upload } from '../controllers/batch.controller.js';
-import { requireRole } from '../middleware/auth.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 import { Role } from '@prisma/client';
 
 export const batchRouter = Router();
+
+// Internal batches API is strictly authenticated
+batchRouter.use(requireAuth);
 
 batchRouter.get('/', BatchController.getBatches);
 batchRouter.get('/sample-csv', BatchController.downloadSampleCsv);

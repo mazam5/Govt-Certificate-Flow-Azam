@@ -4,7 +4,7 @@ import type { Persona } from '../types';
 import { ShieldCheck, Search, AlertCircle, CheckCircle2, Ban, Award, Calendar, Building, BookOpen, User } from 'lucide-react';
 
 interface Props {
-  activePersona: Persona;
+  activePersona?: Persona | null;
   initialCertNumber?: string;
 }
 
@@ -241,7 +241,7 @@ export const PublicVerificationView: React.FC<Props> = ({ activePersona, initial
           </div>
 
           {/* State Office Revocation Control (Farah only) */}
-          {activePersona.role === 'STATE_OFFICE' && verificationResult.status === 'VALID' && (
+          {activePersona?.role === 'STATE_OFFICE' && verificationResult.status === 'VALID' && (
             <div className="p-6 bg-amber-50/50 border-t border-amber-200">
               <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider mb-2 flex items-center">
                 <Award className="w-4 h-4 mr-1 text-amber-600" />

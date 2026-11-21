@@ -108,6 +108,10 @@ export class BatchService {
       throw new AppError('Batch not found.', 404);
     }
 
+    if (user.role === Role.TRAINING_CENTRE && user.centreId && batch.centreId !== user.centreId) {
+      throw new AppError('Forbidden: Training Centre can only submit batches belonging to their centre.', 403);
+    }
+
     if (batch.status !== BatchStatus.DRAFT && batch.status !== BatchStatus.CHANGES_REQUESTED) {
       throw new AppError(`Cannot submit batch currently in ${batch.status} state.`, 400);
     }
@@ -436,10 +440,24 @@ export class BatchService {
 
     const batch = await prisma.batch.findUnique({
       where: { id: batchId },
+      include: { centre: true },
     });
 
     if (!batch) {
       throw new AppError('Batch not found.', 404);
+    }
+
+    if (user.role === Role.DISTRICT_OFFICER && user.district && batch.centre?.district !== user.district) {
+      throw new AppError(`Forbidden: District officer from ${user.district} cannot review batch from ${batch.centre?.district || 'other district'}.`, 403);
+    }
+
+    if (user.role === Role.QUALITY_TEAM) {
+      if (batch.status !== BatchStatus.DISTRICT_APPROVED) {
+        throw new AppError(`Forbidden: Quality Team can only review batches in DISTRICT_APPROVED status. Current: ${batch.status}`, 403);
+      }
+      if (batch.totalCandidates < 50) {
+        throw new AppError('Forbidden: Quality Team review is only applicable for large batches (>= 50 candidates).', 403);
+      }
     }
 
     if (
@@ -505,6 +523,10 @@ export class BatchService {
 
     if (!batch) {
       throw new AppError('Batch not found.', 404);
+    }
+
+    if (user.role === Role.TRAINING_CENTRE && user.centreId && batch.centreId !== user.centreId) {
+      throw new AppError('Forbidden: Training Centre can only resubmit batches belonging to their centre.', 403);
     }
 
     if (batch.status !== BatchStatus.CHANGES_REQUESTED) {
