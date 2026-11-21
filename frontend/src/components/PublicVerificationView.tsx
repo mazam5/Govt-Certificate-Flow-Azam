@@ -1,12 +1,52 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import type { Persona } from '../types';
-import { ShieldCheck, Search, AlertCircle, CheckCircle2, Ban, Award, Calendar, Building, BookOpen, User, Download } from 'lucide-react';
+import { ShieldCheck, Search, AlertCircle, CheckCircle2, Ban, Award, Calendar, Building, BookOpen, User, Download, Sparkles, X } from 'lucide-react';
 
 interface Props {
   activePersona?: Persona | null;
   initialCertNumber?: string;
 }
+
+interface PresetCert {
+  number: string;
+  label: string;
+  description: string;
+  type: 'valid' | 'revoked' | 'invalid' | 'malformed';
+}
+
+const PRESET_CERTIFICATES: PresetCert[] = [
+  {
+    number: 'PSM-2026-DEMO01',
+    label: 'Valid (Solar Tech)',
+    description: 'Issued to Rohan Sharma • Grade A (Click to test valid credential)',
+    type: 'valid',
+  },
+  {
+    number: 'PSM-2026-DEMO02',
+    label: 'Valid (Healthcare GDA)',
+    description: 'Issued to Priya Patel • Grade A+ (Click to test valid credential)',
+    type: 'valid',
+  },
+  {
+    number: 'PSM-2026-REVOKED',
+    label: 'Revoked Credential',
+    description: 'Issued to Aaditya Rao • Revoked by State Office (Audit action)',
+    type: 'revoked',
+  },
+  {
+    number: 'PSM-2026-NOTFOUND',
+    label: 'Unissued / Not Found',
+    description: 'Simulates non-existent 404 credential lookup in registry',
+    type: 'invalid',
+  },
+  {
+    number: 'INVALID-FORMAT-999',
+    label: 'Malformed Identifier',
+    description: 'Simulates unrecognized format query rejection',
+    type: 'malformed',
+  },
+];
 
 export const PublicVerificationView: React.FC<Props> = ({ activePersona, initialCertNumber }) => {
   const [certNumber, setCertNumber] = useState(initialCertNumber || '');
@@ -103,9 +143,23 @@ export const PublicVerificationView: React.FC<Props> = ({ activePersona, initial
               type="text"
               value={certNumber}
               onChange={(e) => setCertNumber(e.target.value.toUpperCase())}
-              placeholder="e.g. PSM-2026-A1B2C3"
-              className="w-full pl-11 pr-4 py-3 text-sm font-mono uppercase font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+              placeholder="e.g. PSM-2026-DEMO01"
+              className="w-full pl-11 pr-10 py-3 text-sm font-mono uppercase font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
             />
+            {certNumber && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCertNumber('');
+                  setVerificationResult(null);
+                  setError(null);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition"
+                title="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
           <button
             type="submit"
@@ -122,6 +176,73 @@ export const PublicVerificationView: React.FC<Props> = ({ activePersona, initial
             )}
           </button>
         </form>
+
+        {/* Quick Demo Predefined Certificate Buttons */}
+        <div className="mt-5 pt-4 border-t border-slate-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-3">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center">
+              <Sparkles className="w-3.5 h-3.5 mr-1.5 text-indigo-600" />
+              Predefined Test Certificates:
+            </span>
+            <span className="text-[11px] text-slate-500">
+              Click any button to populate and verify instantly
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {PRESET_CERTIFICATES.map((preset) => {
+              const isSelected = certNumber === preset.number;
+              const typeColor =
+                preset.type === 'valid'
+                  ? 'border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/80 text-emerald-900'
+                  : preset.type === 'revoked'
+                  ? 'border-amber-200 bg-amber-50/70 hover:bg-amber-100/80 text-amber-900'
+                  : preset.type === 'invalid'
+                  ? 'border-rose-200 bg-rose-50/70 hover:bg-rose-100/80 text-rose-900'
+                  : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-800';
+
+              const dotColor =
+                preset.type === 'valid'
+                  ? 'bg-emerald-500 ring-emerald-200'
+                  : preset.type === 'revoked'
+                  ? 'bg-amber-500 ring-amber-200'
+                  : preset.type === 'invalid'
+                  ? 'bg-rose-500 ring-rose-200'
+                  : 'bg-slate-400 ring-slate-200';
+
+              return (
+                <button
+                  key={preset.number}
+                  type="button"
+                  onClick={() => {
+                    setCertNumber(preset.number);
+                    handleVerify(preset.number);
+                  }}
+                  className={`text-left p-2.5 rounded-xl border transition flex items-start space-x-2.5 cursor-pointer shadow-2xs ${typeColor} ${
+                    isSelected ? 'ring-2 ring-indigo-600 ring-offset-1 border-transparent' : ''
+                  }`}
+                >
+                  <span className={`w-2.5 h-2.5 mt-1 rounded-full ring-2 shrink-0 ${dotColor}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-xs">{preset.number}</span>
+                      <span className="text-[10px] font-semibold uppercase opacity-75">
+                        {preset.type === 'valid'
+                          ? 'Valid'
+                          : preset.type === 'revoked'
+                          ? 'Revoked'
+                          : preset.type === 'invalid'
+                          ? 'Not Found'
+                          : 'Malformed'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] truncate opacity-85 mt-0.5">{preset.description}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Error state */}
