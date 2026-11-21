@@ -1,4 +1,5 @@
 import type { Batch, Persona } from '../types';
+import { useAuthStore } from '../store/authStore';
 
 export const PERSONAS: Persona[] = [
   {
@@ -62,11 +63,18 @@ export const PERSONAS: Persona[] = [
 const API_BASE = '/api';
 
 export function getHeaders(activePersona: Persona): HeadersInit {
-  return {
+  const token = useAuthStore.getState().jwtToken || localStorage.getItem('certiflow_jwt_token');
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'x-user-id': activePersona.id,
     'x-persona': activePersona.name.toLowerCase(),
   };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  return headers;
 }
 
 export const api = {
@@ -92,12 +100,18 @@ export const api = {
     formData.append('file', file);
     formData.append('courseName', courseName);
 
+    const token = useAuthStore.getState().jwtToken || localStorage.getItem('certiflow_jwt_token');
+    const headers: Record<string, string> = {
+      'x-user-id': activePersona.id,
+      'x-persona': activePersona.name.toLowerCase(),
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const res = await fetch(`${API_BASE}/batches/upload`, {
       method: 'POST',
-      headers: {
-        'x-user-id': activePersona.id,
-        'x-persona': activePersona.name.toLowerCase(),
-      },
+      headers,
       body: formData,
     });
     const json = await res.json();
@@ -146,17 +160,32 @@ export const api = {
     const formData = new FormData();
     if (file) formData.append('file', file);
 
+    const token = useAuthStore.getState().jwtToken || localStorage.getItem('certiflow_jwt_token');
+    const headers: Record<string, string> = {
+      'x-user-id': activePersona.id,
+      'x-persona': activePersona.name.toLowerCase(),
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const res = await fetch(`${API_BASE}/batches/${batchId}/resubmit`, {
       method: 'POST',
-      headers: {
-        'x-user-id': activePersona.id,
-        'x-persona': activePersona.name.toLowerCase(),
-      },
+      headers,
       body: formData,
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Resubmission failed');
     return json.data;
+  },
+
+  async getEscalationSummary(batchId: string, activePersona: Persona) {
+    const res = await fetch(`${API_BASE}/batches/${batchId}/escalation-summary`, {
+      headers: getHeaders(activePersona),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to fetch summary');
+    return json.data?.summary;
   },
 
   async verifyCertificate(certNumber: string) {

@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
-import { AlertCircle, RotateCcw, X } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { z } from 'zod';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
+import { AlertCircle, RotateCcw } from 'lucide-react';
+
+const reasonSchema = z.object({
+  reason: z.string().min(5, 'A clear reason is mandatory (minimum 5 characters).'),
+});
+
+type ReasonFormData = z.infer<typeof reasonSchema>;
 
 interface Props {
   isOpen: boolean;
@@ -9,23 +19,26 @@ interface Props {
 }
 
 export const ChangesRequestModal: React.FC<Props> = ({ isOpen, batchNumber, onClose, onSubmit }) => {
-  const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<ReasonFormData>({
+    resolver: zodResolver(reasonSchema),
+  });
+
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reason || reason.trim().length < 5) {
-      setError('A mandatory reason is required (minimum 5 characters).');
-      return;
-    }
-
+  const handleFormSubmit = async (data: ReasonFormData) => {
     setIsSubmitting(true);
     setError(null);
     try {
-      await onSubmit(reason.trim());
+      await onSubmit(data.reason.trim());
+      reset();
       onClose();
     } catch (err: any) {
       setError(err.message || 'Failed to request changes');
@@ -35,19 +48,19 @@ export const ChangesRequestModal: React.FC<Props> = ({ isOpen, batchNumber, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
-        <div className="bg-rose-700 px-6 py-4 text-white flex items-center justify-between">
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md p-0 gap-0 overflow-hidden">
+        <DialogHeader className="bg-rose-700 px-6 py-4 text-white">
           <div className="flex items-center space-x-2">
             <RotateCcw className="w-5 h-5 text-rose-200" />
-            <h3 className="text-base font-bold">Request Changes / Send Back</h3>
+            <DialogTitle className="text-white text-base font-bold">Request Changes / Send Back</DialogTitle>
           </div>
-          <button onClick={onClose} className="text-rose-200 hover:text-white transition">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+          <DialogDescription className="text-rose-200 text-xs">
+            Review Policy: Invalidates prior approvals on resubmit
+          </DialogDescription>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit(handleFormSubmit)} className="p-6 space-y-4">
           <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800">
             <p className="font-semibold flex items-center mb-1">
               <AlertCircle className="w-4 h-4 mr-1 text-rose-600" />
@@ -63,13 +76,14 @@ export const ChangesRequestModal: React.FC<Props> = ({ isOpen, batchNumber, onCl
               Mandatory Reason for Changes
             </label>
             <textarea
-              required
               rows={3}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              {...register('reason')}
               placeholder="e.g. Discrepancy observed in candidate practical completion records. Please rectify and re-verify attendance."
               className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:border-rose-500 transition"
             />
+            {errors.reason && (
+              <p className="text-xs text-rose-600 mt-1">{errors.reason.message}</p>
+            )}
           </div>
 
           {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}
@@ -92,7 +106,7 @@ export const ChangesRequestModal: React.FC<Props> = ({ isOpen, batchNumber, onCl
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };

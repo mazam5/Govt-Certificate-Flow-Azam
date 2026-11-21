@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Batch, Persona } from '../types';
 import { api } from '../services/api';
 import { AuditTimeline } from './AuditTimeline';
 import { ChangesRequestModal } from './ChangesRequestModal';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -16,6 +17,7 @@ import {
   Smartphone,
   ExternalLink,
   ChevronLeft,
+  Sparkles,
 } from 'lucide-react';
 
 interface Props {
@@ -36,6 +38,7 @@ export const BatchDetailView: React.FC<Props> = ({
   const [activeTab, setActiveTab] = useState<'candidates' | 'audit'>('candidates');
   const [isChangesModalOpen, setIsChangesModalOpen] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
 
   // Approvals breakdown
   const districtApprovals = (batch.approvals || []).filter(
@@ -47,7 +50,15 @@ export const BatchDetailView: React.FC<Props> = ({
 
   const hasCurrentOfficerApproved = districtApprovals.some((a) => a.officerId === activePersona.id);
 
-  // Status Badge Helper
+  // Fetch AI Escalation Summary if escalated or requested
+  useEffect(() => {
+    if (batch.status === 'ESCALATED') {
+      api.getEscalationSummary(batch.id, activePersona).then((summary) => {
+        if (summary) setAiSummary(summary);
+      }).catch(() => {});
+    }
+  }, [batch.id, batch.status]);
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'DRAFT':
@@ -69,7 +80,6 @@ export const BatchDetailView: React.FC<Props> = ({
     }
   };
 
-  // Actions
   const handleSubmitBatch = async () => {
     setIsActionLoading(true);
     try {
@@ -156,16 +166,31 @@ export const BatchDetailView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* SLA Escalation Banner */}
+      {/* SLA Escalation Banner with AI Anomaly Summary */}
       {batch.status === 'ESCALATED' && (
-        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 text-xs text-amber-900 flex items-start space-x-3">
-          <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
-          <div>
-            <h4 className="font-extrabold text-amber-950">⚠️ SLA Review Breach Escalation</h4>
-            <p className="mt-0.5 text-amber-800">
-              This batch exceeded the maximum SLA turnaround time without required officer actions. It is now escalated directly to Farah (State Office) for priority sanction.
-            </p>
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-5 text-xs text-amber-900 space-y-3 shadow-xs">
+          <div className="flex items-start space-x-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <h4 className="font-extrabold text-amber-950 text-sm">⚠️ SLA Review Breach Escalation</h4>
+              <p className="mt-0.5 text-amber-800">
+                This batch exceeded the maximum turnaround threshold without the required officer approvals. Escalated directly to Farah (State Directorate).
+              </p>
+            </div>
           </div>
+
+          {/* AI Executive Summary Block */}
+          {aiSummary && (
+            <div className="bg-white/80 backdrop-blur-xs p-3.5 rounded-xl border border-amber-200 text-slate-800">
+              <div className="flex items-center text-indigo-700 font-bold mb-1.5 space-x-1.5">
+                <Sparkles className="w-4 h-4 text-indigo-600" />
+                <span className="uppercase tracking-wider text-[11px]">AI Smart Audit & Bottleneck Analysis:</span>
+              </div>
+              <pre className="whitespace-pre-wrap font-sans text-xs text-slate-700 leading-relaxed">
+                {aiSummary}
+              </pre>
+            </div>
+          )}
         </div>
       )}
 
@@ -191,7 +216,6 @@ export const BatchDetailView: React.FC<Props> = ({
 
           {/* Action Buttons for Active Persona */}
           <div className="flex items-center flex-wrap gap-2">
-            {/* Training Centre (Anika) */}
             {activePersona.role === 'TRAINING_CENTRE' && batch.status === 'DRAFT' && (
               <button
                 onClick={handleSubmitBatch}
@@ -203,7 +227,6 @@ export const BatchDetailView: React.FC<Props> = ({
               </button>
             )}
 
-            {/* District Officers (Dev, Meera, Kabir) */}
             {activePersona.role === 'DISTRICT_OFFICER' && (batch.status === 'SUBMITTED' || batch.status === 'ESCALATED') && (
               <>
                 <button
@@ -232,7 +255,6 @@ export const BatchDetailView: React.FC<Props> = ({
               </>
             )}
 
-            {/* Quality Team (Neha - required only for >= 50 candidates) */}
             {activePersona.role === 'QUALITY_TEAM' && batch.status === 'DISTRICT_APPROVED' && batch.totalCandidates >= 50 && (
               <>
                 <button
@@ -252,7 +274,6 @@ export const BatchDetailView: React.FC<Props> = ({
               </>
             )}
 
-            {/* State Office (Farah - Final Approval & Issuance) */}
             {activePersona.role === 'STATE_OFFICE' && (
               (batch.totalCandidates >= 50 && batch.status === 'QUALITY_APPROVED') ||
               (batch.totalCandidates < 50 && batch.status === 'DISTRICT_APPROVED') ||
@@ -284,7 +305,6 @@ export const BatchDetailView: React.FC<Props> = ({
             Workflow Governance State
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            {/* Step 1: Centre Submission */}
             <div className={`p-3 rounded-xl border text-xs ${
               batch.status !== 'DRAFT'
                 ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900'
@@ -297,7 +317,6 @@ export const BatchDetailView: React.FC<Props> = ({
               <p className="text-[11px] text-slate-500 mt-1">Uploaded by Anika</p>
             </div>
 
-            {/* Step 2: District Approval (Requires 2 distinct officers) */}
             <div className={`p-3 rounded-xl border text-xs ${
               districtApprovals.length >= 2
                 ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900'
@@ -318,7 +337,6 @@ export const BatchDetailView: React.FC<Props> = ({
               </p>
             </div>
 
-            {/* Step 3: Quality Audit (If >= 50 candidates) */}
             <div className={`p-3 rounded-xl border text-xs ${
               batch.totalCandidates < 50
                 ? 'bg-slate-50/40 border-slate-200 text-slate-400 opacity-60'
@@ -345,7 +363,6 @@ export const BatchDetailView: React.FC<Props> = ({
               </p>
             </div>
 
-            {/* Step 4: State Sanction & Issuance */}
             <div className={`p-3 rounded-xl border text-xs ${
               batch.status === 'STATE_APPROVED'
                 ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900'
@@ -365,144 +382,130 @@ export const BatchDetailView: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center space-x-4 border-b border-slate-200">
-        <button
-          onClick={() => setActiveTab('candidates')}
-          className={`pb-3 text-xs font-bold transition flex items-center space-x-1.5 ${
-            activeTab === 'candidates'
-              ? 'border-b-2 border-indigo-600 text-indigo-600'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <UserCheck className="w-4 h-4" />
-          <span>Candidates & Certificates ({batch.candidates?.length || 0})</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('audit')}
-          className={`pb-3 text-xs font-bold transition flex items-center space-x-1.5 ${
-            activeTab === 'audit'
-              ? 'border-b-2 border-indigo-600 text-indigo-600'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Clock className="w-4 h-4" />
-          <span>Immutable Audit Timeline ({batch.auditLogs?.length || 0})</span>
-        </button>
-      </div>
+      {/* Accessible Radix Tabs */}
+      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as any)} className="w-full">
+        <TabsList className="bg-slate-100 p-1 rounded-xl mb-4">
+          <TabsTrigger value="candidates" className="text-xs font-bold">
+            <UserCheck className="w-3.5 h-3.5 mr-1.5" />
+            Candidates & Certificates ({batch.candidates?.length || 0})
+          </TabsTrigger>
+          <TabsTrigger value="audit" className="text-xs font-bold">
+            <Clock className="w-3.5 h-3.5 mr-1.5" />
+            Immutable Audit Timeline ({batch.auditLogs?.length || 0})
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Tab 1: Candidates & Certificates */}
-      {activeTab === 'candidates' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-xs">
-              <thead className="bg-slate-50 text-slate-700">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold">#</th>
-                  <th className="px-4 py-3 text-left font-semibold">Candidate Name</th>
-                  <th className="px-4 py-3 text-left font-semibold">Contact & Aadhar</th>
-                  <th className="px-4 py-3 text-left font-semibold">Grade</th>
-                  <th className="px-4 py-3 text-left font-semibold">Certificate Number</th>
-                  <th className="px-4 py-3 text-left font-semibold">WhatsApp Delivery</th>
-                  <th className="px-4 py-3 text-right font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {(batch.candidates || []).map((candidate, idx) => {
-                  const cert = candidate.certificate;
-                  const delivery = candidate.delivery;
+        <TabsContent value="candidates">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-50 text-slate-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold">#</th>
+                    <th className="px-4 py-3 text-left font-semibold">Candidate Name</th>
+                    <th className="px-4 py-3 text-left font-semibold">Contact & Aadhar</th>
+                    <th className="px-4 py-3 text-left font-semibold">Grade</th>
+                    <th className="px-4 py-3 text-left font-semibold">Certificate Number</th>
+                    <th className="px-4 py-3 text-left font-semibold">WhatsApp Delivery</th>
+                    <th className="px-4 py-3 text-right font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(batch.candidates || []).map((candidate, idx) => {
+                    const cert = candidate.certificate;
+                    const delivery = candidate.delivery;
 
-                  return (
-                    <tr key={candidate.id} className="hover:bg-slate-50/50">
-                      <td className="px-4 py-2.5 text-slate-400 font-mono">{idx + 1}</td>
-                      <td className="px-4 py-2.5">
-                        <div className="font-bold text-slate-900">{candidate.name}</div>
-                        <div className="text-[11px] text-slate-500">S/o {candidate.fatherName}</div>
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-600 font-mono text-[11px]">
-                        <div>+91-{candidate.phone}</div>
-                        <div className="text-slate-400">UID: •••• {candidate.aadharLast4}</div>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span className="font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700">
-                          {candidate.grade}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        {cert ? (
-                          <div className="space-y-0.5">
-                            <button
-                              onClick={() => onOpenVerify(cert.certNumber)}
-                              className="font-mono font-bold text-indigo-600 hover:text-indigo-800 flex items-center text-[11px]"
+                    return (
+                      <tr key={candidate.id} className="hover:bg-slate-50/50">
+                        <td className="px-4 py-2.5 text-slate-400 font-mono">{idx + 1}</td>
+                        <td className="px-4 py-2.5">
+                          <div className="font-bold text-slate-900">{candidate.name}</div>
+                          <div className="text-[11px] text-slate-500">S/o {candidate.fatherName}</div>
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-600 font-mono text-[11px]">
+                          <div>+91-{candidate.phone}</div>
+                          <div className="text-slate-400">UID: •••• {candidate.aadharLast4}</div>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className="font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700">
+                            {candidate.grade}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {cert ? (
+                            <div className="space-y-0.5">
+                              <button
+                                onClick={() => onOpenVerify(cert.certNumber)}
+                                className="font-mono font-bold text-indigo-600 hover:text-indigo-800 flex items-center text-[11px]"
+                              >
+                                <span>{cert.certNumber}</span>
+                                <ExternalLink className="w-3 h-3 ml-1" />
+                              </button>
+                              <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                cert.status === 'VALID'
+                                  ? 'bg-emerald-50 text-emerald-700'
+                                  : 'bg-rose-50 text-rose-700'
+                              }`}>
+                                {cert.status}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic">Pending sanction</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {delivery ? (
+                            <div className="space-y-0.5">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                delivery.status === 'DELIVERED'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : delivery.status === 'FAILED'
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}>
+                                <Smartphone className="w-3 h-3 mr-1" />
+                                {delivery.status} (Attempts: {delivery.attempts})
+                              </span>
+                              {delivery.errorMessage && (
+                                <div className="text-[10px] text-rose-600 truncate max-w-xs" title={delivery.errorMessage}>
+                                  {delivery.errorMessage}
+                                </div>
+                              )}
+                            </div>
+                          ) : cert ? (
+                            <span className="text-slate-400 text-[11px] animate-pulse">Enqueued...</span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {cert && (
+                            <a
+                              href={`/api/certificates/${cert.certNumber}/pdf`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-md font-semibold text-[11px] transition"
                             >
-                              <span>{cert.certNumber}</span>
-                              <ExternalLink className="w-3 h-3 ml-1" />
-                            </button>
-                            <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                              cert.status === 'VALID'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : 'bg-rose-50 text-rose-700'
-                            }`}>
-                              {cert.status}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 italic">Pending sanction</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        {delivery ? (
-                          <div className="space-y-0.5">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              delivery.status === 'DELIVERED'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : delivery.status === 'FAILED'
-                                ? 'bg-rose-100 text-rose-800'
-                                : 'bg-amber-100 text-amber-800'
-                            }`}>
-                              <Smartphone className="w-3 h-3 mr-1" />
-                              {delivery.status} (Attempts: {delivery.attempts})
-                            </span>
-                            {delivery.errorMessage && (
-                              <div className="text-[10px] text-rose-600 truncate max-w-xs" title={delivery.errorMessage}>
-                                {delivery.errorMessage}
-                              </div>
-                            )}
-                          </div>
-                        ) : cert ? (
-                          <span className="text-slate-400 text-[11px] animate-pulse">Enqueued...</span>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        {cert && (
-                          <a
-                            href={`/api/certificates/${cert.certNumber}/pdf`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-md font-semibold text-[11px] transition"
-                          >
-                            <Download className="w-3 h-3 mr-1" />
-                            PDF
-                          </a>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                              <Download className="w-3 h-3 mr-1" />
+                              PDF
+                            </a>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        </TabsContent>
 
-      {/* Tab 2: Immutable Audit Timeline */}
-      {activeTab === 'audit' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-          <AuditTimeline logs={batch.auditLogs || []} />
-        </div>
-      )}
+        <TabsContent value="audit">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            <AuditTimeline logs={batch.auditLogs || []} />
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Changes Request Modal */}
       <ChangesRequestModal

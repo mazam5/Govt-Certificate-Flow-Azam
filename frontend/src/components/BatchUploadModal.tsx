@@ -1,7 +1,17 @@
 import React, { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { z } from 'zod';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { api } from '../services/api';
 import type { Persona, ValidationErrorItem } from '../types';
-import { UploadCloud, FileSpreadsheet, AlertCircle, X, Download, HelpCircle } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
+import { UploadCloud, FileSpreadsheet, AlertCircle, Download, HelpCircle } from 'lucide-react';
+
+const uploadSchema = z.object({
+  courseName: z.string().min(3, 'Course name must be at least 3 characters'),
+});
+
+type UploadFormData = z.infer<typeof uploadSchema>;
 
 interface Props {
   isOpen: boolean;
@@ -11,11 +21,21 @@ interface Props {
 }
 
 export const BatchUploadModal: React.FC<Props> = ({ isOpen, onClose, onSuccess, activePersona }) => {
-  const [courseName, setCourseName] = useState('Solar PV Installation & Maintenance');
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [errors, setErrors] = useState<ValidationErrorItem[]>([]);
   const [generalError, setGeneralError] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors: formErrors },
+  } = useForm<UploadFormData>({
+    resolver: zodResolver(uploadSchema),
+    defaultValues: {
+      courseName: 'Solar PV Installation & Maintenance',
+    },
+  });
 
   if (!isOpen) return null;
 
@@ -27,8 +47,7 @@ export const BatchUploadModal: React.FC<Props> = ({ isOpen, onClose, onSuccess, 
     }
   };
 
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const onSubmit = async (data: UploadFormData) => {
     if (!file) {
       setGeneralError('Please select a CSV or XLSX file to upload.');
       return;
@@ -39,7 +58,7 @@ export const BatchUploadModal: React.FC<Props> = ({ isOpen, onClose, onSuccess, 
     setGeneralError(null);
 
     try {
-      await api.uploadBatch(file, courseName, activePersona);
+      await api.uploadBatch(file, data.courseName, activePersona);
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -91,23 +110,21 @@ export const BatchUploadModal: React.FC<Props> = ({ isOpen, onClose, onSuccess, 
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-indigo-700 to-indigo-900 px-6 py-4 text-white flex items-center justify-between">
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-3xl overflow-hidden p-0 gap-0">
+        <DialogHeader className="bg-gradient-to-r from-indigo-700 to-indigo-900 px-6 py-4 text-white">
           <div className="flex items-center space-x-2">
             <UploadCloud className="w-6 h-6 text-indigo-300" />
             <div>
-              <h3 className="text-lg font-bold">Upload Candidate Batch</h3>
-              <p className="text-xs text-indigo-200">Centre: Pragati Training Centre - District A</p>
+              <DialogTitle className="text-white text-lg font-bold">Upload Candidate Batch</DialogTitle>
+              <DialogDescription className="text-indigo-200 text-xs">
+                Centre: Pragati Training Centre - District A (Radix Accessible Dialog)
+              </DialogDescription>
             </div>
           </div>
-          <button onClick={onClose} className="text-indigo-200 hover:text-white transition">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        </DialogHeader>
 
-        <form onSubmit={handleUpload} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-5">
           {/* Preset Buttons for Quick Demo Testing */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
             <div className="flex items-center justify-between mb-2">
@@ -152,19 +169,20 @@ export const BatchUploadModal: React.FC<Props> = ({ isOpen, onClose, onSuccess, 
             </div>
           </div>
 
-          {/* Course Name */}
+          {/* Course Name with React Hook Form & Zod */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
               Course / Trade Name
             </label>
             <input
               type="text"
-              required
-              value={courseName}
-              onChange={(e) => setCourseName(e.target.value)}
+              {...register('courseName')}
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
               placeholder="e.g. Solar PV Installation & Maintenance"
             />
+            {formErrors.courseName && (
+              <p className="text-xs text-rose-600 mt-1">{formErrors.courseName.message}</p>
+            )}
           </div>
 
           {/* File Picker */}
@@ -269,7 +287,7 @@ export const BatchUploadModal: React.FC<Props> = ({ isOpen, onClose, onSuccess, 
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
