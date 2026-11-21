@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { Role } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
+import { JwtService, JwtPayload } from '../services/jwt.service.js';
 
 export interface AuthenticatedUser {
   id: string;
@@ -73,41 +74,59 @@ export const DEFAULT_PERSONAS: Record<string, AuthenticatedUser> = {
 
 export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const userIdHeader = (req.headers['x-user-id'] as string) || '';
-    const personaHeader = (req.headers['x-persona'] as string || '').toLowerCase();
-
     let user: AuthenticatedUser | null = null;
 
-    if (userIdHeader) {
-      // First check DB
-      try {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: userIdHeader },
-        });
-        if (dbUser) {
-          user = {
-            id: dbUser.id,
-            name: dbUser.name,
-            email: dbUser.email,
-            role: dbUser.role,
-            district: dbUser.district,
-            centreId: dbUser.centreId,
-          };
-        }
-      } catch (err) {
-        // Fallback to static lookup if DB is reconnecting
+    // 1. Check for Authorization Bearer JWT Token
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7).trim();
+      const payload: JwtPayload | null = JwtService.verify(token);
+      if (payload) {
+        user = {
+          id: payload.id,
+          name: payload.name,
+          email: payload.email,
+          role: payload.role,
+          district: payload.district,
+          centreId: payload.centreId,
+        };
       }
-
-      // If not found in DB, check by ID in DEFAULT_PERSONAS
-      if (!user) {
-        const found = Object.values(DEFAULT_PERSONAS).find((p) => p.id === userIdHeader);
-        if (found) user = found;
-      }
-    } else if (personaHeader && DEFAULT_PERSONAS[personaHeader]) {
-      user = DEFAULT_PERSONAS[personaHeader];
     }
 
-    // Default to Anika (Training Centre) if unassigned authenticated route
+    // 2. Fallback to headers for demo persona switcher compatibility
+    if (!user) {
+      const userIdHeader = (req.headers['x-user-id'] as string) || '';
+      const personaHeader = (req.headers['x-persona'] as string || '').toLowerCase();
+
+      if (userIdHeader) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: userIdHeader },
+          });
+          if (dbUser) {
+            user = {
+              id: dbUser.id,
+              name: dbUser.name,
+              email: dbUser.email,
+              role: dbUser.role,
+              district: dbUser.district,
+              centreId: dbUser.centreId,
+            };
+          }
+        } catch (err) {
+          // DB retry fallback
+        }
+
+        if (!user) {
+          const found = Object.values(DEFAULT_PERSONAS).find((p) => p.id === userIdHeader);
+          if (found) user = found;
+        }
+      } else if (personaHeader && DEFAULT_PERSONAS[personaHeader]) {
+        user = DEFAULT_PERSONAS[personaHeader];
+      }
+    }
+
+    // Default to Anika (Training Centre) if non-public route
     if (!user && req.path.startsWith('/api') && !req.path.startsWith('/api/verify') && !req.path.startsWith('/api/events')) {
       user = DEFAULT_PERSONAS.anika;
     }

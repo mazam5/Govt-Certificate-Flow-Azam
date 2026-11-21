@@ -4,11 +4,12 @@ import helmet from 'helmet';
 import { apiRouter } from './routes/index.js';
 import { authMiddleware } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { correlationLoggingMiddleware } from './middleware/logging.middleware.js';
 
 export const app = express();
 
 app.use(helmet({
-  contentSecurityPolicy: false, // For local dev and preview
+  contentSecurityPolicy: false,
 }));
 
 app.use(cors({
@@ -19,7 +20,10 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Global authentication/persona extractor
+// Structured Pino Logging with Correlation IDs
+app.use(correlationLoggingMiddleware);
+
+// Global authentication/persona extractor (supports JWT Bearer & demo headers)
 app.use(authMiddleware);
 
 // API Routes
