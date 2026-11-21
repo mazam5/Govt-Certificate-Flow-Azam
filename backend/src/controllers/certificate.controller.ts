@@ -1,8 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import fs from 'fs';
+import path from 'path';
 import { CertificateService } from '../services/certificate.service.js';
 import { prisma } from '../config/prisma.js';
+import { config } from '../config/env.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { CertificateStatus } from '@prisma/client';
 
 export class CertificateController {
   public static async getCertificates(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -43,21 +46,41 @@ export class CertificateController {
       const paramCert = req.params.certNumber;
       const certNumber = Array.isArray(paramCert) ? paramCert[0] : paramCert;
 
+      if (!certNumber) {
+        throw new AppError('Certificate number is required', 400);
+      }
+
       const cert = await prisma.certificate.findUnique({
         where: { certNumber },
       });
 
-      if (!cert || !cert.pdfPath) {
-        throw new AppError(`Certificate PDF not found for ${certNumber}`, 404);
+      if (!cert) {
+        throw new AppError(`Certificate not found: ${certNumber}`, 404);
       }
 
-      if (!fs.existsSync(cert.pdfPath)) {
-        throw new AppError('Certificate PDF file is missing on storage server.', 404);
+      if (cert.status === CertificateStatus.REVOKED) {
+        throw new AppError(`Certificate ${certNumber} has been revoked and cannot be downloaded.`, 409);
+      }
+
+      // Check if file exists either at recorded pdfPath or standard storage dir
+      const defaultPath = path.join(config.certificateStoragePath, `${cert.certNumber}.pdf`);
+      const targetPath = cert.pdfPath && fs.existsSync(cert.pdfPath) ? cert.pdfPath : defaultPath;
+
+      if (!fs.existsSync(targetPath)) {
+        throw new AppError(`Certificate PDF has not yet been generated for ${certNumber}.`, 404);
+      }
+
+      const stat = fs.statSync(targetPath);
+      if (stat.size === 0) {
+        throw new AppError(`Certificate PDF file is corrupted or empty for ${certNumber}.`, 500);
       }
 
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename="${cert.certNumber}.pdf"`);
-      fs.createReadStream(cert.pdfPath).pipe(res);
+      res.setHeader('Content-Disposition', `attachment; filename="${cert.certNumber}.pdf"`);
+      res.setHeader('Content-Length', stat.size);
+
+      const stream = fs.createReadStream(targetPath);
+      stream.pipe(res);
     } catch (err) {
       next(err);
     }

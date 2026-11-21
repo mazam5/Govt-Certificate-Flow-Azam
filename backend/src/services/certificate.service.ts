@@ -51,6 +51,7 @@ export class CertificateService {
     }
 
     const filePath = path.join(storageDir, `${params.certNumber}.pdf`);
+    const tempPath = path.join(storageDir, `${params.certNumber}.tmp.${Date.now()}`);
     const verificationUrl = `${config.frontendUrl}/verify/${params.certNumber}`;
 
     // Generate QR code as buffer
@@ -69,7 +70,7 @@ export class CertificateService {
         margins: { top: 30, bottom: 30, left: 30, right: 30 },
       });
 
-      const writeStream = fs.createWriteStream(filePath);
+      const writeStream = fs.createWriteStream(tempPath);
       doc.pipe(writeStream);
 
       // Certificate Border Styling
@@ -139,8 +140,22 @@ export class CertificateService {
 
       doc.end();
 
-      writeStream.on('finish', () => resolve());
-      writeStream.on('error', (err) => reject(err));
+      writeStream.on('finish', () => {
+        try {
+          fs.renameSync(tempPath, filePath);
+          resolve();
+        } catch (renameErr) {
+          reject(renameErr);
+        }
+      });
+      writeStream.on('error', (err) => {
+        if (fs.existsSync(tempPath)) {
+          try {
+            fs.unlinkSync(tempPath);
+          } catch {}
+        }
+        reject(err);
+      });
     });
 
     return { filePath, qrDataUrl };

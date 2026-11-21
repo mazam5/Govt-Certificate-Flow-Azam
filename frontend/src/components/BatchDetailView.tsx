@@ -457,9 +457,10 @@ export const BatchDetailView: React.FC<Props> = ({
                         <td className="px-4 py-2.5 text-right">
                           {cert && (
                             <a
-                              href={`/api/certificates/${cert.certNumber}/pdf`}
+                              href={`/api/certificates/${cert.certNumber}/download`}
                               target="_blank"
                               rel="noreferrer"
+                              download={`${cert.certNumber}.pdf`}
                               className="inline-flex items-center px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-md font-semibold text-[11px] transition"
                             >
                               <Download className="w-3 h-3 mr-1" />

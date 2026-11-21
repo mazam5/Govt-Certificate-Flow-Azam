@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import type { Persona } from '../types';
-import { ShieldCheck, Search, AlertCircle, CheckCircle2, Ban, Award, Calendar, Building, BookOpen, User } from 'lucide-react';
+import { ShieldCheck, Search, AlertCircle, CheckCircle2, Ban, Award, Calendar, Building, BookOpen, User, Download } from 'lucide-react';
 
 interface Props {
   activePersona?: Persona | null;
@@ -230,14 +230,23 @@ export const PublicVerificationView: React.FC<Props> = ({ activePersona, initial
           {/* Privacy Guarantee Note */}
           <div className="px-6 py-3 bg-slate-100 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-500">
             <span>🔒 Zero PII Disclosure: Personal contact numbers and national identifiers are strictly protected.</span>
-            <a
-              href={`/api/certificates/${verificationResult.certNumber}/pdf`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-indigo-600 hover:text-indigo-800 font-semibold"
-            >
-              Download Official PDF
-            </a>
+            {verificationResult.status === 'VALID' ? (
+              <a
+                href={`/api/certificates/${verificationResult.certNumber}/download`}
+                target="_blank"
+                rel="noreferrer"
+                download={`${verificationResult.certNumber}.pdf`}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-xs shadow-xs transition"
+              >
+                <Download className="w-3.5 h-3.5 mr-1" />
+                Download Certificate PDF
+              </a>
+            ) : (
+              <span className="text-rose-600 font-semibold text-xs flex items-center">
+                <Ban className="w-3.5 h-3.5 mr-1" />
+                PDF Download Disabled (Revoked)
+              </span>
+            )}
           </div>
 
           {/* State Office Revocation Control (Farah only) */}

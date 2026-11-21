@@ -44,8 +44,9 @@ CertiFlow follows **Domain-Driven Design (DDD)** and an **Event-Driven Architect
        ▼                                                       ▼
 [ PDF Generation Worker ]                            [ WhatsApp Delivery Worker ]
  • Cryptographic Number (PSM-2026-XXXXXX)             • Stand-in Gateway with latency
- • Vector PDF with embedded QR verification           • Simulated 20% network drops
- • Idempotency key `(batchId, candidateId)`           • Exponential backoff retry loop
+ • Pure Node.js PDFKit + QR Code (No Puppeteer)       • Simulated 20% network drops
+ • Shared Docker Volume (`/app/storage/certificates`) • Exponential backoff retry loop
+ • Atomic write & stream close before DB record       • Real-time delivery log tracking
 ```
 
 ### Review Policy & Resubmission Reset
@@ -95,7 +96,9 @@ The UI features a persistent top-bar **Demo Persona Switcher** issuing signed **
 - **Redis & BullMQ:** Distributed in-memory caching for sub-millisecond public certificate checks (`cert:public:${certNumber}`), distributed idempotency locks (`cert:issued:${batchId}:${candidateId}`), delayed BullMQ SLA monitors, and exponential backoff WhatsApp delivery retries.
 - **Pluggable EventBus:** Clean `IEventBus` interface allowing seamless swapping between the local Redis/BullMQ event bus and enterprise event brokers for high-volume audit streaming.
 - **100% Deterministic Zod Ingestion:** Zero external AI dependencies or brittle runtime abstractions. Spreadsheet ingestion relies exclusively on strict Zod schema validation (`CandidateRowSchema`), guaranteeing that malformed CSV/XLSX rows are rejected atomically with pinpoint row and column error reporting.
-- **Local Volume Storage with Cloud Roadmap:** Certificate PDFs are rendered via vector PDFKit and saved directly to a containerized volume mount (`./storage/certificates`), keeping runtime code self-contained and zero-cost locally. The full enterprise AWS cloud production architecture (ECS/EC2, S3 KMS, Aurora RDS, ElastiCache, MSK) is specified exclusively in `DEPLOYMENT.md`.
+- **Pure Node.js PDF Generation & Shared Volume Storage:** Certificates are rendered via lightweight, zero-browser pure Node.js vector libraries (`pdfkit` + `qrcode`) without headless Chromium/Puppeteer dependencies. Each PDF features official Pragati Skills Mission styling, double security borders, a cryptographically unique certificate number (`PSM-2026-XXXXXX`), candidate and trade metadata, and a scannable QR code resolving to `/verify/:certNumber`. Files are saved atomically to a shared Docker volume (`certificate_storage` mounted at `/app/storage/certificates`) before records are marked `ISSUED` in PostgreSQL.
+- **Public & Authenticated PDF Download Endpoints:** Certificates can be downloaded via `GET /api/certificates/:certNumber/download` (and `/pdf`) with `Content-Type: application/pdf` and `Content-Disposition: attachment; filename="<certNumber>.pdf"`. Revoked certificates immediately return `HTTP 409 Conflict`, and nonexistent certificates return `HTTP 404`.
+- **Cloud Architecture Roadmap:** The full enterprise AWS cloud production architecture (ECS/EC2, S3 KMS, Aurora RDS, ElastiCache, MSK) is specified cleanly and exclusively in `DEPLOYMENT.md`.
 
 ### Dependency Rationale (Strict Justification)
 Every dependency in `package.json` has a clear, production-justified role:
@@ -146,17 +149,29 @@ cd backend
 npm run test
 ```
 
-### Tested Moments:
+### Tested Moments & Integration Suites:
 1. **Atomic rejection of bad spreadsheet rows:** Verifies that row-level validation errors (bad phone, invalid Aadhar, malformed DOB) abort the entire upload with status 422, exact row/column reasons, and zero partial writes to the database.
 2. **Race condition test (Two concurrent approvals):** Simulates concurrent district approvals (`Dev` and `Meera` executing simultaneously via `Promise.all`), proving PostgreSQL transactions and row locking advance the batch exactly once without duplicate votes or deadlocks.
 3. **Batch of 60 candidates with unique certificates:** Simulates a large batch of 60 candidates progressing through District → Quality (`Neha`) → State (`Farah`), issuing 60 collision-free cryptographic certificates despite simulated WhatsApp failures.
 4. **Instant cache invalidation on revocation:** Verifies that State Office revocation of an issued credential immediately flips public verification to `REVOKED` and purges the Redis cache.
 5. **SLA timer escalation:** Proves that an untouched review batch triggers BullMQ delayed SLA expiration, flipping the batch status to `ESCALATED` and broadcasting real-time alerts.
 6. **Resubmission resets prior approvals:** Tests the "send back" workflow, verifying that centre resubmission marks prior approvals as `REVOKED_ON_RESUBMIT` and restarts the governance audit trail.
+7. **End-to-End PDF Generation & Download Suite (`pdf-generation.test.ts`):** Asserts pure Node.js PDFKit generation, verifying on-disk storage, `%PDF-` binary magic bytes, QR code rendering, `GET /api/certificates/:certNumber/download` headers, 409 Conflict on revoked certificates, and 404 on nonexistent credentials.
+8. **Auth & RBAC Security Suite (`auth-rbac.test.ts`):** Validates zero-trust JWT token verification, persona switching, and role-based endpoint protection.
 
 ---
 
-## 📦 6. Postman API Collection & CI/CD
+## 📂 6. Sample Candidate Spreadsheets (`samples/`)
+
+To test batch ingestion with edge cases, four realistic test files are provided in `samples/`:
+- `samples/standard_solar_batch.csv`: 5 valid candidates for Solar PV Installation Technician (standard approval path skipping Quality Team).
+- `samples/large_60_candidate_batch.csv`: 60 valid candidates for Electric Vehicle Service Technician (automatically triggers Quality Team review under Rule 2).
+- `samples/invalid_malformed_batch.csv`: 4 candidates with deliberate row/column validation errors (verifies atomic rejection and zero partial writes).
+- `samples/healthcare_batch.xlsx`: 5 valid candidates in genuine binary `.xlsx` Excel format.
+
+---
+
+## 📦 7. Postman API Collection & CI/CD
 
 - **Postman Collection:** A ready-to-import collection is available at `postman/CertiFlow.postman_collection.json`, covering Persona Auth, Signed JWT verification, Batch Upload, Approvals, Rejections, Public Verification, and Revocation.
 - **GitHub Actions Workflow:** `.github/workflows/ci.yml` is configured to run on every push and pull request to `main`, validating:

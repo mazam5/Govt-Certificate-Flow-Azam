@@ -5,11 +5,14 @@ import { Role } from '@prisma/client';
 
 export const certificateRouter = Router();
 
-// Internal certificate routes are strictly authenticated
+// Publicly accessible certificate PDF download endpoints (support both /download and /pdf)
+certificateRouter.get('/:certNumber/download', CertificateController.downloadPdf);
+certificateRouter.get('/:certNumber/pdf', CertificateController.downloadPdf);
+
+// Internal staff routes are strictly authenticated
 certificateRouter.use(requireAuth);
 
 certificateRouter.get('/', CertificateController.getCertificates);
-certificateRouter.get('/:certNumber/pdf', CertificateController.downloadPdf);
 
 // Only State Office (Farah) can revoke certificates
 certificateRouter.post(
