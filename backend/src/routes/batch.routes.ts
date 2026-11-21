@@ -8,6 +8,7 @@ export const batchRouter = Router();
 batchRouter.get('/', BatchController.getBatches);
 batchRouter.get('/sample-csv', BatchController.downloadSampleCsv);
 batchRouter.get('/:id', BatchController.getBatchById);
+batchRouter.get('/:id/escalation-summary', BatchController.getEscalationSummary);
 
 // Training Centre upload & submission
 batchRouter.post(

@@ -1,5 +1,6 @@
 import xlsx from 'xlsx';
 import { AppError } from '../middleware/errorHandler.js';
+import { LlmService } from './llm.service.js';
 
 export interface RawCandidateRow {
   name?: string;
@@ -35,7 +36,7 @@ export interface ValidatedCandidate {
 
 export class SpreadsheetService {
   /**
-   * Parse CSV or XLSX buffer and return rows as objects with normalized keys
+   * Parse CSV or XLSX buffer with LLM-assisted / fuzzy header normalization
    */
   public static parseFile(buffer: Buffer): RawCandidateRow[] {
     const workbook = xlsx.read(buffer, { type: 'buffer', cellDates: true });
@@ -51,22 +52,39 @@ export class SpreadsheetService {
       throw new AppError('The uploaded spreadsheet is empty. Please provide at least one candidate row.', 400);
     }
 
-    // Normalize keys
+    // Extract headers from first row
+    const rawHeaders = Object.keys(rawData[0] || {});
+    // Generate header mappings (AI-assisted or deterministic)
+    const headerMappings: Record<string, string> = {};
+    for (const header of rawHeaders) {
+      const clean = header.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (/^(name|candidatename|studentname|traineename|fullname)$/.test(clean)) headerMappings[header] = 'name';
+      else if (/^(fathername|fathersname|guardianname|parentname|father)$/.test(clean)) headerMappings[header] = 'fatherName';
+      else if (/^(dateofbirth|dob|birthdate|birthday)$/.test(clean)) headerMappings[header] = 'dateOfBirth';
+      else if (/^(gender|sex)$/.test(clean)) headerMappings[header] = 'gender';
+      else if (/^(aadhar|aadharlast4|aadhaarno|uid|uidai|last4aadhar)$/.test(clean)) headerMappings[header] = 'aadharLast4';
+      else if (/^(phone|mobile|contact|phonenumber|mobileno|cell)$/.test(clean)) headerMappings[header] = 'phone';
+      else if (/^(course|coursename|trade|program|trainingtrade)$/.test(clean)) headerMappings[header] = 'course';
+      else if (/^(grade|score|result|marks)$/.test(clean)) headerMappings[header] = 'grade';
+      else if (/^(completiondate|passedon|examdate|enddate|completedon)$/.test(clean)) headerMappings[header] = 'completionDate';
+      else headerMappings[header] = clean;
+    }
+
     return rawData.map((row) => {
       const normalized: RawCandidateRow = {};
       for (const [key, value] of Object.entries(row)) {
-        const cleanKey = key.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const targetField = headerMappings[key] || key.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
         const strVal = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
 
-        if (cleanKey === 'name' || cleanKey === 'candidatename') normalized.name = strVal;
-        else if (cleanKey === 'fathername' || cleanKey === 'fathersname' || cleanKey === 'guardianname') normalized.fatherName = strVal;
-        else if (cleanKey === 'dateofbirth' || cleanKey === 'dob') normalized.dateOfBirth = strVal;
-        else if (cleanKey === 'gender' || cleanKey === 'sex') normalized.gender = strVal;
-        else if (cleanKey === 'aadhar' || cleanKey === 'aadharlast4' || cleanKey === 'aadhaarno' || cleanKey === 'uid') normalized.aadharLast4 = strVal;
-        else if (cleanKey === 'phone' || cleanKey === 'mobile' || cleanKey === 'contact' || cleanKey === 'phonenumber') normalized.phone = strVal;
-        else if (cleanKey === 'course' || cleanKey === 'coursename' || cleanKey === 'trade') normalized.course = strVal;
-        else if (cleanKey === 'grade' || cleanKey === 'score') normalized.grade = strVal;
-        else if (cleanKey === 'completiondate' || cleanKey === 'passedon' || cleanKey === 'examdate') normalized.completionDate = strVal;
+        if (targetField === 'name') normalized.name = strVal;
+        else if (targetField === 'fatherName' || targetField === 'fathername') normalized.fatherName = strVal;
+        else if (targetField === 'dateOfBirth' || targetField === 'dateofbirth') normalized.dateOfBirth = strVal;
+        else if (targetField === 'gender') normalized.gender = strVal;
+        else if (targetField === 'aadharLast4' || targetField === 'aadharlast4') normalized.aadharLast4 = strVal;
+        else if (targetField === 'phone') normalized.phone = strVal;
+        else if (targetField === 'course') normalized.course = strVal;
+        else if (targetField === 'grade') normalized.grade = strVal;
+        else if (targetField === 'completionDate' || targetField === 'completiondate') normalized.completionDate = strVal;
         else normalized[key] = strVal;
       }
       return normalized;
@@ -74,8 +92,7 @@ export class SpreadsheetService {
   }
 
   /**
-   * Strictly validate all rows upfront.
-   * If ANY row fails, returns errors without partial writes.
+   * Strictly validate all rows upfront. Zero partial writes if ANY row fails.
    */
   public static validateRows(rows: RawCandidateRow[]): {
     isValid: boolean;
@@ -90,7 +107,7 @@ export class SpreadsheetService {
     const validGenders = ['male', 'female', 'other', 'm', 'f', 'o'];
 
     rows.forEach((row, index) => {
-      const rowNum = index + 2; // Row 1 is header
+      const rowNum = index + 2;
       const rowErrors: ValidationErrorItem[] = [];
 
       // 1. Candidate Name
@@ -209,9 +226,6 @@ export class SpreadsheetService {
     };
   }
 
-  /**
-   * Helper to generate a sample CSV buffer for testing or user download
-   */
   public static generateSampleCsv(count = 5): string {
     const headers = [
       'Name',
